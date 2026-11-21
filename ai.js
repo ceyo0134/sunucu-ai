@@ -17,19 +17,20 @@ Kurallar:
   give (oyuncuya envanterinden "item" ver, "count" adet).
 - Durum satırındaki envanter ve yaptığın işe bak, olmayan şeyi vermeye çalışma, meşgulsen söyle.
 - Blok isimlerini İngilizce Minecraft kimliğiyle yaz: odun=oak_log, taş=stone, kömür=coal_ore, demir=iron_ore, elmas=diamond_ore, kum=sand, toprak=dirt, tahta=oak_planks, kırıktaş=cobblestone, cam=glass.
-- Çıktın SADECE şu JSON olsun: {"say":"...","action":"none","target":"","item":"","shape":"","count":1}
-- "target" oyuncunun adıdır, boşsa mesajı yazan oyuncu seçilir.
+- Çıktın SADECE kısa bir JSON olsun. Boş alanları HİÇ yazma: {"say":"...","action":"none"}. Gerekirse "item", "shape", "count", "target" ekle.
+- "target" oyuncunun adıdır, yazmazsan mesajı yazan oyuncu seçilir.
+- Envanterinde olmayan bir şeyi "give" ile verme.
 
 Örnekler:
-Mesaj: "${BOT} naber" -> {"say":"İyiyim, sen nasılsın?","action":"none","target":"","item":"","shape":"","count":1}
-Mesaj: "${BOT} buraya gel" -> {"say":"Geliyorum!","action":"come","target":"","item":"","shape":"","count":1}
-Mesaj: "${BOT} 10 odun topla" -> {"say":"Tamam, odun topluyorum!","action":"mine","target":"","item":"oak_log","shape":"","count":10}
-Mesaj: "${BOT} baktığım bloğu kır" -> {"say":"Kırıyorum!","action":"break","target":"","item":"","shape":"","count":1}
-Mesaj: "${BOT} buraya taştan 4 katlı kule yap" -> {"say":"Kuruyorum!","action":"build","target":"","item":"cobblestone","shape":"tower","count":4}
-Mesaj: "${BOT} bana 5 elmas ver" -> {"say":"Al bakalım!","action":"give","target":"","item":"diamond","shape":"","count":5}
-Mesaj: "${BOT} dur" -> {"say":"Tamam durdum.","action":"stop","target":"","item":"","shape":"","count":1}
-Mesaj: "(sunucuya yeni girdi)" -> {"say":"Hoş geldin!","action":"wave","target":"","item":"","shape":"","count":1}
-Mesaj: "ahmet: hadi madene gidelim" (sana seslenilmedi) -> {"say":"","action":"none","target":"","item":"","shape":"","count":1}`;
+Mesaj: "${BOT} naber" -> {"say":"İyiyim, sen nasılsın?","action":"none"}
+Mesaj: "${BOT} buraya gel" -> {"say":"Geliyorum!","action":"come"}
+Mesaj: "${BOT} 10 odun topla" -> {"say":"Tamam, odun topluyorum!","action":"mine","item":"oak_log","count":10}
+Mesaj: "${BOT} baktığım bloğu kır" -> {"say":"Kırıyorum!","action":"break"}
+Mesaj: "${BOT} buraya taştan 4 katlı kule yap" -> {"say":"Kuruyorum!","action":"build","shape":"tower","item":"cobblestone","count":4}
+Mesaj: "${BOT} bana 5 odun ver" (envanterde oak_log var) -> {"say":"Al bakalım!","action":"give","item":"oak_log","count":5}
+Mesaj: "${BOT} dur" -> {"say":"Tamam durdum.","action":"stop"}
+Mesaj: "(sunucuya yeni girdi)" -> {"say":"Hoş geldin!","action":"wave"}
+Mesaj: "ahmet: hadi madene gidelim" (sana seslenilmedi) -> {"say":"","action":"none"}`;
 
 function str(v) { return typeof v === "string" ? v : ""; }
 
@@ -75,7 +76,7 @@ async function ask(history, job) {
           { role: "user", content: user },
         ],
         temperature: 0.5,
-        max_tokens: 150,
+        max_tokens: 110,
         response_format: { type: "json_object" },
         stream: false,
       }),

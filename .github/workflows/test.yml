@@ -29,7 +29,7 @@ jobs:
         env:
           ONCE: "1"
           SESSION_HOURS: "0.15"
-          TEST_ACTIONS: ${{ vars.TEST_ACTIONS || 'mine:dirt:2;build:tower:dirt:2' }}
+          TEST_ACTIONS: ${{ vars.TEST_ACTIONS || 'mine:auto:3;build:tower:auto:2' }}
           MC_HOST: ${{ vars.MC_HOST || 'Oynatrtr.aternos.me' }}
           MC_PORT: ${{ vars.MC_PORT || '46490' }}
           MC_USERNAME: ${{ vars.MC_USERNAME || 'ceyobot' }}

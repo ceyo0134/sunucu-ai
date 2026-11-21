@@ -42,6 +42,7 @@ function clean(s) {
 function say(bot, text) {
   const s = clean(text);
   if (!s) return;
+  log("SAY:", s);
   try { bot.chat(s); } catch (_) {}
   lastSpoke = Date.now();
   history.push(`${USERNAME}: ${s}`);
@@ -329,7 +330,12 @@ async function think() {
     const r = await ask(history.slice(-10), job);
     log("AI (" + (Date.now() - t) + "ms):", JSON.stringify({ say: r.say, action: r.action, item: r.item, shape: r.shape, count: r.count, target: r.target }));
     if (current === bot) {
-      if (r.say && (job.addressed || job.system || Date.now() - lastSpoke > 60000)) say(bot, r.say);
+      let sayText = r.say;
+      if (r.action === "give") {
+        let nm = norm(r.item); if (PLACE_ALIAS[nm]) nm = PLACE_ALIAS[nm];
+        if (!bot.inventory.items().some((i) => i.name === nm)) { sayText = `Bende ${r.item || "o"} yok.`; r.action = "none"; }
+      }
+      if (sayText && (job.addressed || job.system || Date.now() - lastSpoke > 60000)) say(bot, sayText);
       await act(bot, r, job);
     }
   } catch (e) {
@@ -404,12 +410,35 @@ function startIdle(bot, timers) {
   }
 }
 
+const NATURAL = new Set(["dirt", "grass_block", "coarse_dirt", "stone", "sand", "red_sand", "gravel", "netherrack", "sandstone", "oak_log", "birch_log", "spruce_log", "jungle_log", "acacia_log", "dark_oak_log"]);
+
 async function runTests(bot) {
+  let auto = null;
   for (const spec of TEST_ACTIONS.split(";").map((s) => s.trim()).filter(Boolean)) {
     const [k, a, b, c] = spec.split(":");
     log("TEST", spec);
-    if (k === "mine") await runTask(bot, "mine", "test", (t) => mineTask(bot, t, a, parseInt(b, 10) || 1));
-    if (k === "build") await runTask(bot, "build", "test", (t) => buildTask(bot, t, bot.entity, a, b, parseInt(c, 10) || 2));
+    if (k === "mine") {
+      let item = a;
+      if (a === "auto") {
+        const pos = bot.findBlocks({ matching: (bl) => NATURAL.has(bl.name), maxDistance: 8, count: 300 });
+        const hist = {};
+        pos.forEach((p) => { const n = bot.blockAt(p).name; hist[n] = (hist[n] || 0) + 1; });
+        log("TEST nearby natural blocks:", JSON.stringify(hist));
+        item = Object.keys(hist).sort((x, y) => hist[y] - hist[x])[0];
+        if (!item) { log("TEST no natural blocks nearby, skipping"); continue; }
+        auto = item;
+      }
+      await runTask(bot, "mine", "test", (t) => mineTask(bot, t, item, parseInt(b, 10) || 1));
+    }
+    if (k === "build") {
+      let item = b;
+      if (b === "auto") {
+        const inv = bot.inventory.items().sort((x, y) => y.count - x.count)[0];
+        item = inv ? inv.name : auto;
+        log("TEST building with:", item);
+      }
+      await runTask(bot, "build", "test", (t) => buildTask(bot, t, bot.entity, a, item, parseInt(c, 10) || 2));
+    }
     log("TEST done", spec, "|", status(bot));
   }
 }
