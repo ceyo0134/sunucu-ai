@@ -25,3 +25,9 @@ Default: `bartowski/Qwen2.5-7B-Instruct-GGUF` (Q4_K_M). If it feels slow, switch
 ## Credits
 
 Free to use, no license needed. If you use or share this, a small credit linking back to [ceyo0134](https://github.com/ceyo0134) would be really appreciated. It is a request, not a requirement. Thank you! 💚
+
+## Commands and new abilities
+
+- **Owner commands:** the owner (`ceyo0134`, change with the `MC_OWNERS` variable, comma separated) can make the bot run any Minecraft command by writing it after the bot's name: `ceyobot /time set day`. The AI can also run commands for the owner when asked in plain words ("ceyobot gündüz yap"). Other players are refused. Dangerous commands (`op`, `deop`, `stop`, `ban`, `whitelist`, `lp`, `login` ...) are always blocked, also inside `execute ... run`.
+- **Needs op:** the bot must be op on the server for commands, heal and auto-giving build materials to work. If it is not op it tells you.
+- **New actions:** `heal` (instant health, saturation, regeneration), `guard` (follows and protects a player), `fight`, `goto x y z`, `craft`, `sleep`, plus a bigger house (5-7 wide, door, windows and a roof).

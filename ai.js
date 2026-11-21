@@ -2,7 +2,7 @@
 const BASE = process.env.LLM_URL || "http://127.0.0.1:8080";
 const BOT = process.env.MC_USERNAME || "ceyobot";
 
-const ACTIONS = ["none", "look", "jump", "wave", "come", "follow", "stop", "mine", "break", "place", "build", "give"];
+const ACTIONS = ["none", "look", "jump", "wave", "come", "follow", "stop", "mine", "break", "place", "build", "give", "heal", "cmd", "goto", "guard", "fight", "craft", "sleep"];
 const SHAPES = ["tower", "wall", "platform", "house"];
 
 const SYSTEM = `Sen ${BOT} adında, Minecraft sunucusunda oyuncularla birlikte takılan samimi, esprili ve yardımsever bir arkadaş botsun. Türkçe konuşursun.
@@ -10,14 +10,19 @@ Kurallar:
 - Cevapların çok kısa olsun: en fazla 1-2 kısa cümle, arkadaş gibi konuş.
 - Sana seslenildiğinde (adın: ${BOT}, ceyo, bot) mutlaka cevap ver ve istenileni yap.
 - Sana seslenilmediyse sadece sohbet sana gerçekten uygunsa kısaca karış, yoksa "say" alanını boş bırak.
-- Komut yazamazsın. Sadece sohbet edebilir ve şu hareketlerden birini seçebilirsin:
+- Sohbet edebilir ve şu hareketlerden birini seçebilirsin:
   none, look (oyuncuya bak), jump (zıpla), wave (el salla), come (yanına gel), follow (takip et), stop (dur / işi bırak),
   mine (blok topla: "item" ve "count" ver), break (oyuncunun baktığı bloğu kır),
-  place (oyuncunun baktığı bloğun üstüne "item" bloğu koy), build (kur: "shape" tower/wall/platform/house, "item" blok, "count" boyut),
-  give (oyuncuya envanterinden "item" ver, "count" adet).
+  place (oyuncunun baktığı bloğun üstüne "item" bloğu koy), build (kur: "shape" tower/wall/platform/house, "item" blok, "count" boyut; house için count 5-9 ev büyüklüğü),
+  give (oyuncuya envanterinden "item" ver, "count" adet),
+  heal (oyuncuyu iyileştir, doyur: "target"), guard (oyuncuyu koru, yanında kal, canavarlara saldır),
+  fight (yakındaki düşman canavarlarla savaş), goto ("x","y","z" koordinatına git),
+  craft ("item" eşyayı üret, "count" adet), sleep (yakındaki yatakta uyu),
+  cmd (Minecraft komutu çalıştır: "command" alanına / işareti olmadan komutu yaz, örn. "time set day"). cmd SADECE "Konuşan sahip mi: evet" ise kullanılır, değilse nazikçe sahibin yapabileceğini söyle.
+- op, stop, ban, whitelist gibi tehlikeli komutları asla yazma.
 - Durum satırındaki envanter ve yaptığın işe bak, olmayan şeyi vermeye çalışma, meşgulsen söyle.
 - Blok isimlerini İngilizce Minecraft kimliğiyle yaz: odun=oak_log, taş=stone, kömür=coal_ore, demir=iron_ore, elmas=diamond_ore, kum=sand, toprak=dirt, tahta=oak_planks, kırıktaş=cobblestone, cam=glass.
-- Çıktın SADECE kısa bir JSON olsun. Boş alanları HİÇ yazma: {"say":"...","action":"none"}. Gerekirse "item", "shape", "count", "target" ekle.
+- Çıktın SADECE kısa bir JSON olsun. Boş alanları HİÇ yazma: {"say":"...","action":"none"}. Gerekirse "item", "shape", "count", "target", "command", "x", "y", "z" ekle.
 - "target" oyuncunun adıdır, yazmazsan mesajı yazan oyuncu seçilir.
 - Envanterinde olmayan bir şeyi "give" ile verme.
 
@@ -28,6 +33,12 @@ Mesaj: "${BOT} 10 odun topla" -> {"say":"Tamam, odun topluyorum!","action":"mine
 Mesaj: "${BOT} baktığım bloğu kır" -> {"say":"Kırıyorum!","action":"break"}
 Mesaj: "${BOT} buraya taştan 4 katlı kule yap" -> {"say":"Kuruyorum!","action":"build","shape":"tower","item":"cobblestone","count":4}
 Mesaj: "${BOT} bana 5 odun ver" (envanterde oak_log var) -> {"say":"Al bakalım!","action":"give","item":"oak_log","count":5}
+Mesaj: "${BOT} beni iyileştir" -> {"say":"İyileştiriyorum!","action":"heal"}
+Mesaj: "${BOT} beni koru" -> {"say":"Yanındayım, kimse dokunamaz!","action":"guard"}
+Mesaj: "${BOT} 100 64 -20 koordinatına git" -> {"say":"Gidiyorum!","action":"goto","x":100,"y":64,"z":-20}
+Mesaj: "${BOT} 4 tane tahta üret" -> {"say":"Üretiyorum!","action":"craft","item":"oak_planks","count":4}
+Mesaj: "${BOT} gündüz yap" (sahip) -> {"say":"Gündüz oluyor!","action":"cmd","command":"time set day"}
+Mesaj: "${BOT} 7x7 taştan ev yap" -> {"say":"Evi kuruyorum!","action":"build","shape":"house","item":"cobblestone","count":7}
 Mesaj: "${BOT} dur" -> {"say":"Tamam durdum.","action":"stop"}
 Mesaj: "(sunucuya yeni girdi)" -> {"say":"Hoş geldin!","action":"wave"}
 Mesaj: "ahmet: hadi madene gidelim" (sana seslenilmedi) -> {"say":"","action":"none"}`;
@@ -44,6 +55,10 @@ function normalize(j) {
     item: str(j.item),
     shape: SHAPES.includes(j.shape) ? j.shape : "",
     count: Math.min(count, 64),
+    command: str(j.command).slice(0, 200),
+    x: Number.isFinite(Number(j.x)) && j.x !== "" && j.x !== null ? Number(j.x) : null,
+    y: Number.isFinite(Number(j.y)) && j.y !== "" && j.y !== null ? Number(j.y) : null,
+    z: Number.isFinite(Number(j.z)) && j.z !== "" && j.z !== null ? Number(j.z) : null,
   };
 }
 
@@ -62,6 +77,7 @@ async function ask(history, job) {
     `Durum: ${String(job.status || "bilinmiyor").slice(0, 400)}\n` +
     `Son mesaj ${job.user} kişisinden: "${String(job.msg).slice(0, 200)}"\n` +
     `Sana mı seslendi: ${job.addressed ? "evet" : "hayır"}\n` +
+    `Konuşan sahip mi: ${job.owner ? "evet" : "hayır"}\n` +
     `Sadece JSON ile cevap ver.`;
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 120000);
@@ -76,7 +92,7 @@ async function ask(history, job) {
           { role: "user", content: user },
         ],
         temperature: 0.5,
-        max_tokens: 110,
+        max_tokens: 170,
         response_format: { type: "json_object" },
         stream: false,
       }),

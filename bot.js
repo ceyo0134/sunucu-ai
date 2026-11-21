@@ -6,6 +6,7 @@ const { pathfinder, Movements, goals } = require("mineflayer-pathfinder");
 const { Vec3 } = require("vec3");
 const makeItem = require("prismarine-item");
 const { ask, SHAPES } = require("./ai");
+const { isOwner, sanitizeCommand } = require("./cmd");
 
 const HOST = process.env.MC_HOST || "Oynatrtr.aternos.me";
 const PORT = process.env.MC_PORT ? parseInt(process.env.MC_PORT, 10) : undefined;
@@ -30,6 +31,8 @@ const seen = new Map();
 let current = null;
 let task = null; // { name, text, cancel }
 let busy = false, pending = null, lastThink = 0, lastSpoke = 0;
+let guarding = null; // name of the player we are guarding
+let lastCmdAt = 0, noOpAt = 0; // last command time / last "no permission" reply
 
 // ---------- helpers ----------
 function clean(s) {
@@ -47,6 +50,18 @@ function say(bot, text) {
   lastSpoke = Date.now();
   history.push(`${USERNAME}: ${s}`);
   if (history.length > 20) history.shift();
+}
+
+// Runs a "/" command. Only called for owners (or by the bot itself for owner requests); denylist always applies.
+async function runCommand(bot, raw) {
+  const r = sanitizeCommand(raw, PASSWORD);
+  if (!r.ok) { log("CMD refused:", r.reason); return r; }
+  const wait = 700 - (Date.now() - lastCmdAt);
+  if (wait > 0) await sleep(wait);
+  lastCmdAt = Date.now();
+  log("CMD:", r.cmd);
+  try { bot.chat("/" + r.cmd); } catch (_) {}
+  return r;
 }
 
 const PROTECTED = /(bedrock|barrier|command_block|structure_block|jigsaw|spawner|chest|barrel|shulker_box|furnace|smoker|hopper|dispenser|dropper|beacon|ender|portal|_bed$|sign|lectern|jukebox|crafting_table|enchanting|anvil|brewing|spawn)/;
@@ -110,7 +125,7 @@ async function digBlock(bot, block) {
   await bot.dig(block, true);
 }
 
-async function ensureItem(bot, name) {
+async function ensureItem(bot, name, allowGive) {
   name = norm(name);
   if (PLACE_ALIAS[name]) name = PLACE_ALIAS[name];
   const def = bot.registry.itemsByName[name];
@@ -122,6 +137,12 @@ async function ensureItem(bot, name) {
     await sleep(200);
     it = bot.inventory.items().find((i) => i.name === name) || null;
   }
+  if (!it && allowGive && Date.now() - noOpAt > 60000) {
+    // owner asked for this job and the bot is op: give itself the materials
+    await runCommand(bot, `give ${USERNAME} minecraft:${name} 64`);
+    await sleep(1000);
+    it = bot.inventory.items().find((i) => i.name === name) || null;
+  }
   if (!it) return null;
   await bot.equip(it, "hand");
   return it;
@@ -130,9 +151,10 @@ async function ensureItem(bot, name) {
 // ---------- tasks ----------
 function cancelTask() { if (task) task.cancel = true; }
 
-function runTask(bot, name, text, fn) {
+function runTask(bot, name, text, fn, owner) {
   if (task) task.cancel = true;
-  const t = { name, text, cancel: false };
+  guarding = null;
+  const t = { name, text, cancel: false, owner: !!owner };
   task = t;
   return (async () => {
     try { await sleep(200); await fn(t); }
@@ -186,7 +208,7 @@ async function breakTask(bot, t, e) {
 const DIRS = [new Vec3(0, -1, 0), new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1), new Vec3(0, 1, 0)];
 const REPLACEABLE = new Set(["air", "cave_air", "void_air", "short_grass", "grass", "tall_grass", "snow"]);
 
-async function placeAt(bot, pos, itemName) {
+async function placeAt(bot, pos, itemName, allowGive) {
   const cur = bot.blockAt(pos);
   if (!cur) return "fail";
   if (!REPLACEABLE.has(cur.name)) return "occupied";
@@ -196,12 +218,12 @@ async function placeAt(bot, pos, itemName) {
     if (nb && nb.boundingBox === "block") { ref = nb; face = new Vec3(-d.x, -d.y, -d.z); break; }
   }
   if (!ref) return "noref";
-  await gotoNear(bot, pos, 2, 15000).catch(() => {});
+  if (bot.entity.position.distanceTo(pos.offset(0.5, 0.5, 0.5)) > 4.2) await gotoNear(bot, pos, 2, 15000).catch(() => {});
   const p = bot.entity.position;
   if (Math.floor(p.x) === pos.x && Math.floor(p.z) === pos.z && Math.abs(Math.floor(p.y) - pos.y) <= 1) {
     await gotoNear(bot, pos.offset(3, 0, 3), 1, 8000).catch(() => {}); // step out of the way
   }
-  const it = await ensureItem(bot, itemName);
+  const it = await ensureItem(bot, itemName, allowGive);
   if (!it) return "noitem";
   try {
     await bot.lookAt(pos.offset(0.5, 0.5, 0.5));
@@ -216,7 +238,7 @@ async function placeAt(bot, pos, itemName) {
 async function placeTask(bot, t, e, item) {
   const ref = e && bot.blockAtEntityCursor(e, 6);
   if (!ref || ref.name === "air") { say(bot, "Nereye koyacağımı göremiyorum."); return; }
-  const r = await placeAt(bot, ref.position.offset(0, 1, 0), item || "cobblestone");
+  const r = await placeAt(bot, ref.position.offset(0, 1, 0), item || "cobblestone", t.owner);
   if (r === "noitem") say(bot, `Bende ${item || "o blok"} yok.`);
   else if (r === "ok") say(bot, "Koydum!");
   else say(bot, "Oraya koyamadım.");
@@ -233,16 +255,19 @@ function shapePositions(shape, base, n) {
     const s = Math.max(2, Math.min(n, 7));
     for (let x = 0; x < s; x++) for (let z = 0; z < s; z++) out.push(base.offset(x, 1, z));
   } else if (shape === "house") {
-    const s = 5;
+    const s = n >= 5 ? Math.min(n, 7) : 5;
+    const mid = Math.floor(s / 2);
     for (let y = 1; y <= 3; y++) {
       for (let x = 0; x < s; x++) {
         for (let z = 0; z < s; z++) {
           const edge = x === 0 || z === 0 || x === s - 1 || z === s - 1;
-          const door = x === 2 && z === 0 && y <= 2;
-          if (edge && !door) out.push(base.offset(x, y, z));
+          const door = x === mid && z === 0 && y <= 2;
+          const win = y === 2 && ((x === mid && z === s - 1) || ((x === 0 || x === s - 1) && z === mid));
+          if (edge && !door && !win) out.push(base.offset(x, y, z));
         }
       }
     }
+    for (let x = 0; x < s; x++) for (let z = 0; z < s; z++) out.push(base.offset(x, 4, z)); // roof
   }
   return out;
 }
@@ -266,7 +291,15 @@ async function buildTask(bot, t, e, shape, item, n) {
   for (const pos of list) {
     if (t.cancel) break;
     t.text = `${shape} kuruyorum (${ok}/${list.length})`;
-    const r = await placeAt(bot, pos, item).catch(() => "fail");
+    if (shape === "house" && pos.y === base.y + 4) {
+      // roof: stand inside the house so every roof block is within reach
+      const s = n >= 5 ? Math.min(n, 7) : 5;
+      const sx = base.x + Math.max(1, Math.min(pos.x - base.x, s - 2));
+      const sz = base.z + Math.max(1, Math.min(pos.z - base.z, s - 2));
+      const sp = new Vec3(sx, base.y + 1, sz);
+      if (bot.entity.position.distanceTo(sp.offset(0.5, 0, 0.5)) > 1.5) await gotoNear(bot, sp, 1, 8000).catch(() => {});
+    }
+    const r = await placeAt(bot, pos, item, t.owner).catch(() => "fail");
     if (r === "ok") { ok++; await sleep(150); }
     else if (r === "noitem") { say(bot, `Bende ${item} yok, bana verir misin?`); return; }
   }
@@ -285,6 +318,85 @@ async function giveTask(bot, t, e, item, n) {
   say(bot, "Al bakalım!");
 }
 
+async function healTask(bot, t, name) {
+  if (!NAME_RE.test(name)) { say(bot, "Kimi iyileştireyim?"); return; }
+  const before = noOpAt;
+  await runCommand(bot, `effect give ${name} minecraft:instant_health 1 10 true`);
+  await runCommand(bot, `effect give ${name} minecraft:saturation 1 20 true`);
+  await runCommand(bot, `effect give ${name} minecraft:regeneration 15 2 true`);
+  await sleep(1500);
+  if (noOpAt > before) {
+    const food = bot.inventory.items().find((i) => bot.registry.foods && bot.registry.foods[i.type]);
+    const p = bot.players[name];
+    if (food && p && p.entity) { await giveTask(bot, t, p.entity, food.name, 4); say(bot, "Op yetkim yok ama yemek verdim."); }
+    else say(bot, "Op yetkim yok, beni op yaparsan iyileştirebilirim.");
+  } else {
+    say(bot, "İyileştirdim, afiyet olsun!");
+  }
+}
+
+async function gotoTask(bot, t, x, y, z) {
+  if (![x, y, z].every((v) => Number.isFinite(v) && Math.abs(v) < 30000000)) { say(bot, "Koordinatları anlayamadım."); return; }
+  t.text = `${Math.round(x)} ${Math.round(y)} ${Math.round(z)} koordinatına gidiyorum`;
+  try {
+    await gotoNear(bot, new Vec3(x, y, z), 2, 120000);
+    if (!t.cancel) say(bot, "Vardım!");
+  } catch (e) {
+    say(bot, "Oraya gidemedim.");
+  }
+}
+
+async function craftTask(bot, t, item, n) {
+  let name = norm(item);
+  if (PLACE_ALIAS[name]) name = PLACE_ALIAS[name];
+  const def = bot.registry.itemsByName[name];
+  if (!def) { say(bot, "Bu eşyayı tanımıyorum."); return; }
+  let table = null;
+  let recipe = bot.recipesFor(def.id, null, 1, null)[0];
+  if (!recipe) {
+    const tb = bot.registry.blocksByName.crafting_table;
+    table = tb && bot.findBlock({ matching: tb.id, maxDistance: 24 });
+    if (table) recipe = bot.recipesFor(def.id, null, 1, table)[0];
+  }
+  if (!recipe) { say(bot, `${item} için malzemem yok ya da yakında tezgah yok.`); return; }
+  if (table) await gotoNear(bot, table.position, 3, 15000).catch(() => {});
+  const per = (recipe.result && recipe.result.count) || 1;
+  await bot.craft(recipe, Math.max(1, Math.ceil(n / per)), table || undefined);
+  say(bot, `${item} ürettim!`);
+}
+
+async function sleepTask(bot, t) {
+  const bed = bot.findBlock({ matching: (b) => b.name.endsWith("_bed"), maxDistance: 32 });
+  if (!bed) { say(bot, "Yakında yatak yok."); return; }
+  await gotoNear(bot, bed.position, 2, 15000).catch(() => {});
+  try { await bot.sleep(bed); say(bot, "İyi geceler!"); }
+  catch (e) { say(bot, "Şu an uyuyamıyorum."); }
+}
+
+async function fightTask(bot, t) {
+  const end = Date.now() + 60000;
+  let kills = 0, idle = 0;
+  while (!t.cancel && Date.now() < end && idle < 6) {
+    const me = bot.entity.position;
+    const mob = bot.nearestEntity((e) => e.type === "hostile" && e.position.distanceTo(me) < 24);
+    if (!mob) { idle++; await sleep(1000); continue; }
+    idle = 0;
+    t.text = "canavarla savaşıyorum";
+    try {
+      const sword = bot.inventory.items().find((i) => i.name.endsWith("_sword"));
+      if (sword) await bot.equip(sword, "hand").catch(() => {});
+      await gotoNear(bot, mob.position, 2, 6000).catch(() => {});
+      for (let k = 0; k < 8 && mob.isValid && !t.cancel; k++) {
+        await bot.lookAt(mob.position.offset(0, mob.height || 1, 0));
+        if (bot.entity.position.distanceTo(mob.position) < 4) bot.attack(mob);
+        await sleep(600);
+      }
+      if (!mob.isValid) kills++;
+    } catch (e) { log("fight error:", e.message); }
+  }
+  if (!t.cancel) say(bot, kills ? `${kills} canavarı hallettim!` : "Yakında canavar kalmadı.");
+}
+
 // ---------- AI brain ----------
 async function act(bot, r, job) {
   const name = r.target || job.user;
@@ -299,21 +411,40 @@ async function act(bot, r, job) {
     case "wave": bot.swingArm(); break;
     case "look": if (e) await bot.lookAt(e.position.offset(0, e.height || 1.6, 0)); break;
     case "come":
-      cancelTask();
+      cancelTask(); guarding = null;
       if (e) bot.pathfinder.setGoal(new goals.GoalNear(e.position.x, e.position.y, e.position.z, 2));
       else say(bot, "Seni göremiyorum, biraz yaklaş.");
       break;
     case "follow":
-      cancelTask();
+      cancelTask(); guarding = null;
       if (e) bot.pathfinder.setGoal(new goals.GoalFollow(e, 2), true);
       else say(bot, "Seni göremiyorum, biraz yaklaş.");
       break;
-    case "stop": cancelTask(); bot.pathfinder.setGoal(null); break;
-    case "mine": runTask(bot, "mine", `${r.item} topluyorum`, (t) => mineTask(bot, t, r.item, n)); break;
-    case "break": runTask(bot, "break", "blok kırıyorum", (t) => breakTask(bot, t, e)); break;
-    case "place": runTask(bot, "place", "blok koyuyorum", (t) => placeTask(bot, t, e, r.item)); break;
-    case "build": runTask(bot, "build", "bir şey kuruyorum", (t) => buildTask(bot, t, e, r.shape, r.item, n)); break;
-    case "give": runTask(bot, "give", "eşya veriyorum", (t) => giveTask(bot, t, e, r.item, n)); break;
+    case "stop": cancelTask(); guarding = null; bot.pathfinder.setGoal(null); break;
+    case "mine": runTask(bot, "mine", `${r.item} topluyorum`, (t) => mineTask(bot, t, r.item, n), job.owner); break;
+    case "break": runTask(bot, "break", "blok kırıyorum", (t) => breakTask(bot, t, e), job.owner); break;
+    case "place": runTask(bot, "place", "blok koyuyorum", (t) => placeTask(bot, t, e, r.item), job.owner); break;
+    case "build": runTask(bot, "build", "bir şey kuruyorum", (t) => buildTask(bot, t, e, r.shape, r.item, n), job.owner); break;
+    case "give": runTask(bot, "give", "eşya veriyorum", (t) => giveTask(bot, t, e, r.item, n), job.owner); break;
+    case "heal": runTask(bot, "heal", "iyileştiriyorum", (t) => healTask(bot, t, name), job.owner); break;
+    case "guard":
+      cancelTask();
+      if (e) { guarding = name; bot.pathfinder.setGoal(new goals.GoalFollow(e, 3), true); }
+      else say(bot, "Seni göremiyorum, biraz yaklaş.");
+      break;
+    case "fight": runTask(bot, "fight", "savaşıyorum", (t) => fightTask(bot, t), job.owner); break;
+    case "goto":
+      if (r.x === null || r.y === null || r.z === null) say(bot, "Koordinatları tam söyler misin? (x y z)");
+      else runTask(bot, "goto", "yürüyorum", (t) => gotoTask(bot, t, r.x, r.y, r.z), job.owner);
+      break;
+    case "craft": runTask(bot, "craft", `${r.item} üretiyorum`, (t) => craftTask(bot, t, r.item, n), job.owner); break;
+    case "sleep": runTask(bot, "sleep", "uyuyorum", (t) => sleepTask(bot, t), job.owner); break;
+    case "cmd": {
+      if (!job.owner) { say(bot, "Komutları sadece sahibim verebilir."); break; }
+      const res = await runCommand(bot, r.command);
+      if (!res.ok) say(bot, String(res.reason).startsWith("denied") ? "O komut güvenlik için yasak." : "Bu komutu çalıştıramam.");
+      break;
+    }
     default: break;
   }
 }
@@ -328,7 +459,7 @@ async function think() {
     job.status = status(bot);
     const t = Date.now();
     const r = await ask(history.slice(-10), job);
-    log("AI (" + (Date.now() - t) + "ms):", JSON.stringify({ say: r.say, action: r.action, item: r.item, shape: r.shape, count: r.count, target: r.target }));
+    log("AI (" + (Date.now() - t) + "ms):", JSON.stringify({ say: r.say, action: r.action, item: r.item, shape: r.shape, count: r.count, target: r.target, command: r.command, x: r.x, y: r.y, z: r.z }));
     if (current === bot) {
       let sayText = r.say;
       if (r.action === "give") {
@@ -346,6 +477,8 @@ async function think() {
   }
 }
 
+const DIRECT_RE = new RegExp("^\\s*(?:" + USERNAME + "|ceyo|bot)\\b[,:]?\\s+\\/(\\S.*)$", "i");
+
 function incoming(user, msg) {
   if (!user || !msg || user === USERNAME || !NAME_RE.test(user)) return;
   const key = user + "|" + msg, now = Date.now();
@@ -354,9 +487,20 @@ function incoming(user, msg) {
   if (seen.size > 200) seen.clear();
   history.push(`${user}: ${String(msg).slice(0, 200)}`);
   if (history.length > 20) history.shift();
+  const direct = String(msg).match(DIRECT_RE);
+  if (direct) { // "ceyobot /time set day" -> run the command directly (owners only)
+    const b = current;
+    if (!b) return;
+    if (!isOwner(user)) { say(b, "Komutları sadece sahibim verebilir."); return; }
+    runCommand(b, direct[1]).then((res) => {
+      if (!res.ok) say(b, String(res.reason).startsWith("denied") ? "O komut güvenlik için yasak." : "Bu komutu çalıştıramam.");
+      else say(b, "Komutu gönderdim.");
+    }).catch(() => {});
+    return;
+  }
   const addressed = ADDR_RE.test(msg);
   if (!addressed && (!UNPROMPTED || now - lastThink < 20000)) return;
-  pending = { user, msg, addressed };
+  pending = { user, msg, addressed, owner: isOwner(user) };
   think();
 }
 
@@ -371,18 +515,26 @@ function startIdle(bot, timers) {
       if (near) bot.lookAt(near.position.offset(0, near.height || 1.6, 0));
     } catch (_) {}
   }, 2000));
-  // defend against hostile mobs
+  // defend against hostile mobs (wider radius and chasing while guarding a player)
   let lastHit = 0;
   timers.push(setInterval(() => {
     try {
       if (task && task.name === "build") return;
       const me = bot.entity.position;
-      const mob = bot.nearestEntity((e) => e.type === "hostile" && e.position.distanceTo(me) < 4.5);
-      if (mob && Date.now() - lastHit > 600) {
-        lastHit = Date.now();
-        const sword = bot.inventory.items().find((i) => i.name.endsWith("_sword"));
-        if (sword && !(bot.heldItem && bot.heldItem.name === sword.name)) bot.equip(sword, "hand").catch(() => {});
-        bot.lookAt(mob.position.offset(0, mob.height || 1, 0)).then(() => bot.attack(mob)).catch(() => {});
+      const reach = guarding ? 10 : 4.5;
+      const mob = bot.nearestEntity((e) => e.type === "hostile" && e.position.distanceTo(me) < reach);
+      if (mob) {
+        const d = mob.position.distanceTo(me);
+        if (guarding && d > 3) bot.pathfinder.setGoal(new goals.GoalNear(mob.position.x, mob.position.y, mob.position.z, 2));
+        if (d < 4 && Date.now() - lastHit > 600) {
+          lastHit = Date.now();
+          const sword = bot.inventory.items().find((i) => i.name.endsWith("_sword"));
+          if (sword && !(bot.heldItem && bot.heldItem.name === sword.name)) bot.equip(sword, "hand").catch(() => {});
+          bot.lookAt(mob.position.offset(0, mob.height || 1, 0)).then(() => bot.attack(mob)).catch(() => {});
+        }
+      } else if (guarding) {
+        const pe = bot.players[guarding] && bot.players[guarding].entity;
+        if (pe && !(bot.pathfinder.goal && bot.pathfinder.goal.entity === pe)) bot.pathfinder.setGoal(new goals.GoalFollow(pe, 3), true);
       }
     } catch (_) {}
   }, 500));
@@ -470,6 +622,7 @@ function connect(msLeft) {
     bot.on("chat", (u, m) => incoming(u, m));
     bot.on("messagestr", (msg) => {
       const m = msg.toLowerCase();
+      if (Date.now() - lastCmdAt < 4000 && /permission|izniniz yok|yetkin yok|yetkiniz yok|unknown or incomplete|unknown command|bilinmeyen komut|do not have/.test(m)) noOpAt = Date.now();
       if (/success|giris yapildi|giriş yapıldı|basariyla|başarıyla|welcome back/.test(m) && authTries > 0) { authed = true; return; }
       if (/\/register|\/kayit|\/kayıt/.test(m) && !/already|zaten/.test(m)) { doAuth("register"); return; }
       if (/\/login|\/giris|\/giriş/.test(m)) { doAuth("login"); return; }
@@ -483,6 +636,7 @@ function connect(msLeft) {
       if (finished) return;
       finished = true;
       if (current === bot) current = null;
+      guarding = null;
       cancelTask();
       timers.forEach((t) => { clearTimeout(t); clearInterval(t); });
       try { bot.end(); } catch (_) {}
