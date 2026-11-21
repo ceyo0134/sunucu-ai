@@ -2,7 +2,7 @@
 const assert = require("assert");
 const { Vec3 } = require("vec3");
 const { planCraft, smeltOutputFor } = require("./plan");
-const { parse, sayFromPartial } = require("./ai");
+const { parse, sayFromPartial, isChatOnly, parseChat } = require("./ai");
 const makeExtra = require("./extra");
 
 let fails = 0;
@@ -30,6 +30,17 @@ ok("smeltOutputFor", smeltOutputFor("raw_iron") === "iron_ingot" && smeltOutputF
 // ---- parser ----
 const p = parse('{"say":"x","actions":[{"action":"cook","item":"cooked_beef","count":4},{"action":"Harvest"},{"action":"hunt","item":"cow","count":3},{"action":"digdown","y":-50},{"action":"hack"}]}');
 ok("parser aliases", p.actions.map((a) => a.action).join() === "smelt,farm,hunt,digdown" && p.actions[3].y === -50);
+{
+  const J = (msg, extra) => Object.assign({ user: "ceyo0134", msg, addressed: /ceyo|bot/i.test(msg), status: "can 20/20" }, extra || {});
+  const chatMsgs = ["ceyobot naber", "ceyobot nasılsın?", "ceyobot selam", "ceyobot sen kimsin", "ceyobot çok komiksin"];
+  const taskMsgs = ["ceyobot buraya gel", "ceyobot 10 odun topla", "ceyobot dur", "ceyobot bana tp len", "ceyobot /skin set Yener", "ceyobot şaka yap", "ceyobot elmas kazma", "ceyobot hemen gel", "ceyobot tamam", "ceyobot beni koru", "ceyobot gündüz olsun"];
+  ok("fast path: small talk uses the small prompt", chatMsgs.every((m) => isChatOnly(J(m))), chatMsgs.filter((m) => !isChatOnly(J(m))).join(" | "));
+  ok("fast path: anything that asks for work uses the big prompt", taskMsgs.every((m) => !isChatOnly(J(m))), taskMsgs.filter((m) => isChatOnly(J(m))).join(" | "));
+  ok("fast path: not addressed -> small prompt (no actions possible)", isChatOnly(J("ahmet: hadi madene gidelim", { addressed: false })));
+  ok("fast path: waiting for the owner -> big prompt", !isChatOnly(J("ceyobot naber", { status: "sahipten bekliyorsun: elmas" })));
+  ok("fast path: join greeting waves", parseChat("Hoş geldin!", { system: true }).actions[0].action === "wave");
+  ok("fast path: '-' means silence, quotes/name stripped", parseChat("-", {}).say === "" && parseChat('ceyobot: "Selam!"', {}).say === "Selam!");
+}
 ok("stream: say is found only once it is complete", sayFromPartial('{"say":"Gel') === null && sayFromPartial('{"say":"Geliyorum!","acti') === "Geliyorum!");
 ok("stream: escaped quotes in say", sayFromPartial('{"say":"O \\"iyi\\" bir gün","actions":[]}') === 'O "iyi" bir gün');
 

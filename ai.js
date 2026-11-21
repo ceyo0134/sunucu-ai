@@ -72,6 +72,40 @@ Mesaj: "${BOT} bende yok kendin topla" (durumda sahipten bekliyorsun) -> {"say":
 Mesaj: "(sunucuya yeni girdi)" -> {"say":"Hoş geldin!","actions":[{"action":"wave"}]}
 Mesaj: "ahmet: hadi madene gidelim" (sana seslenilmedi) -> {"say":"","actions":[]}`;
 
+// ---- fast path for normal chat ----
+// The big prompt above (all jobs + examples, ~3000 tokens) is only needed when someone asks the bot to DO something.
+// Small talk and messages that were not meant for the bot use this tiny prompt, so they are answered like in the first version (a few seconds).
+const SYSTEM_CHAT = `Sen ${BOT} adında, Minecraft sunucusunda oyuncularla takılan samimi, esprili bir arkadaş botsun. Türkçe konuşursun.
+Kurallar:
+- Sadece cevabını yaz, tek kısa cümle (en fazla 12 kelime). JSON, açıklama, tırnak yazma.
+- Sana seslenildiyse (adın: ${BOT}, ceyo, bot) mutlaka cevap ver.
+- Sana seslenilmediyse ve sohbet sana gerçekten uygun değilse sadece "-" yaz.`;
+
+// words that mean "do something": such messages always go to the big prompt (a miss here only costs speed, never a missed job)
+const TASK_RE = new RegExp("(" + [
+  "gel", "gid", "git", "topla", "kaz", "kır", "kes", "yap", "kur", "inşa", "insa", "koy", "ver", "\\bal\\b", "getir", "bul", "\\bara\\b", "savaş", "vur", "öldür", "avla", "koru",
+  "takip", "\\bdur", "bırak", "birak", "iptal", "vazgeç", "hemen", "şimdi", "acil", "uyu", "\\bye\\b", "tut", "balık", "hasat", "tünel", "craft", "mine", "\\btp\\b", "ışınla", "isinla",
+  "zıpla", "salla", "\\bbak", "yürü", "koş", "\\bbin", "sandık", "giy", "eşya", "envanter", "kendin", "bende", "kazma", "kılıç", "zırh", "kule", "duvar", "\\bev\\b", "odun", "taş",
+  "elmas", "demir", "kömür", "komut", "gündüz", "gece", "iyileş", "skin", "oyun", "zaman", "yağmur", "\\bek\\b", "pişir", "erit", "taşı", "götür", "yanıma", "yanına", "buraya", "şuraya",
+  "heal", "give", "come", "follow", "stop", "tamam", "evet", "hayır", "kazan", "yık", "patlat", "sür", "oku", "yaz",
+].join("|") + ")", "i");
+
+function isChatOnly(job) {
+  if (job.system) return true; // someone just joined: greeting
+  if (/bekliyorsun/.test(String(job.status || ""))) return false; // waiting for materials from the owner: the big prompt knows retry/selfgather
+  if (!job.addressed) return true; // not meant for the bot: it may only chat (the big prompt says: no actions)
+  const msg = String(job.msg || "");
+  if (msg.length > 70 || /[\d\/]/.test(msg)) return false;
+  return !TASK_RE.test(msg.toLocaleLowerCase("tr"));
+}
+
+function parseChat(text, job) {
+  let say = String(text || "").trim().replace(new RegExp("^" + BOT + "\\s*[:>]\\s*", "i"), "").replace(/^["'“”]+|["'“”]+$/g, "").trim();
+  if (/^[-–—.\s]*$/.test(say)) say = ""; // "-" = nothing to say
+  const actions = job.system ? [normalizeAction({ action: "wave" })] : [];
+  return { say: say.slice(0, 200), actions };
+}
+
 function str(v) { return typeof v === "string" ? v : ""; }
 function num(v) { return v !== "" && v !== null && v !== undefined && Number.isFinite(Number(v)) ? Number(v) : null; }
 
@@ -164,35 +198,40 @@ async function readStream(res, onSay, started) {
   return text;
 }
 
+function buildChatUser(history, job) {
+  const lines = history.map((l) => String(l).slice(0, 200)).join("\n");
+  return (
+    `Son sohbet:\n${lines}\n\n` +
+    `Son mesaj ${job.user} kişisinden: "${String(job.msg).slice(0, 200)}"\n` +
+    `Sana mı seslendi: ${job.addressed ? "evet" : "hayır"}`
+  );
+}
+
 async function ask(history, job, onSay) {
   const t0 = Date.now();
+  const fast = isChatOnly(job);
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 150000);
   try {
+    // two llama.cpp slots: slot 0 keeps the big prompt cached, slot 1 the small chat prompt, so they never throw each other out
+    const body = fast
+      ? { messages: [{ role: "system", content: SYSTEM_CHAT }, { role: "user", content: buildChatUser(history, job) }], temperature: 0.7, max_tokens: 40, stream: true, cache_prompt: true, id_slot: 1 }
+      : { messages: [{ role: "system", content: SYSTEM }, { role: "user", content: buildUser(history, job) }], temperature: 0.5, max_tokens: 450, response_format: { type: "json_object" }, stream: true, cache_prompt: true, id_slot: 0 };
     const res = await fetch(BASE + "/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: ctl.signal,
-      body: JSON.stringify({
-        messages: [
-          { role: "system", content: SYSTEM },
-          { role: "user", content: buildUser(history, job) },
-        ],
-        temperature: 0.5,
-        max_tokens: 450,
-        response_format: { type: "json_object" },
-        stream: true,
-        cache_prompt: true,
-      }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error("LLM HTTP " + res.status);
     let raw;
-    if (res.body && typeof res.body[Symbol.asyncIterator] === "function") raw = await readStream(res, onSay, t0);
+    if (res.body && typeof res.body[Symbol.asyncIterator] === "function") raw = await readStream(res, fast ? null : onSay, t0);
     else { // no stream available: plain JSON answer
       const data = await res.json();
       raw = data.choices && data.choices[0] && data.choices[0].message.content;
     }
-    return Object.assign(parse(raw), { raw });
+    if (lastStats) lastStats.fast = fast;
+    return Object.assign(fast ? parseChat(raw, job) : parse(raw), { raw });
   } finally {
     clearTimeout(timer);
   }
@@ -201,28 +240,25 @@ async function ask(history, job, onSay) {
 // The long system prompt (~4000 tokens) is slow on a CPU the first time (about 2 minutes). Send it once at startup so llama.cpp keeps it cached
 // and the first real chat message is as fast as the rest.
 async function warmup() {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 300000);
-  try {
-    const res = await fetch(BASE + "/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: ctl.signal,
-      body: JSON.stringify({
-        messages: [
-          { role: "system", content: SYSTEM },
-          { role: "user", content: buildUser(["ceyo0134: merhaba"], { user: "ceyo0134", msg: "merhaba", addressed: false, owner: false, status: "başlıyor" }) },
-        ],
-        max_tokens: 1,
-        stream: false,
-        cache_prompt: true,
-      }),
-    });
-    if (!res.ok) throw new Error("LLM HTTP " + res.status);
-    await res.json();
-  } finally {
-    clearTimeout(timer);
-  }
+  const one = async (system, user, slot) => {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 300000);
+    try {
+      const res = await fetch(BASE + "/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: ctl.signal,
+        body: JSON.stringify({ messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 1, stream: false, cache_prompt: true, id_slot: slot }),
+      });
+      if (!res.ok) throw new Error("LLM HTTP " + res.status);
+      await res.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const job = { user: "ceyo0134", msg: "merhaba", addressed: false, owner: false, status: "başlıyor" };
+  await one(SYSTEM_CHAT, buildChatUser(["ceyo0134: merhaba"], job), 1); // small: a few seconds, chat works right away
+  await one(SYSTEM, buildUser(["ceyo0134: merhaba"], job), 0); // big: about 2 minutes
 }
 
-module.exports = { ask, warmup, getStats, parse, sayFromPartial, ACTIONS, SHAPES };
+module.exports = { ask, warmup, getStats, isChatOnly, parseChat, parse, sayFromPartial, ACTIONS, SHAPES };

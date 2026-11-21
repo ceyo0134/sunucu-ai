@@ -38,7 +38,7 @@ Free to use, no license needed. If you use or share this, a small credit linking
 - New requests are added to the **end of the queue** (up to 1000 jobs). Say "hemen" / "şimdi" and the model puts a `stop` first so the new job starts immediately.
 - **"dur"** is decided by the model: `stop` drops the current job and the whole queue, `skip` only drops the current job and continues with the next one.
 - The status the model sees contains the current job and the next queued jobs, so it knows what is going on.
-- llama.cpp now runs with a 6144 token context (the prompt got bigger) and prompt caching, so only the first message is slow.
+- llama.cpp runs two slots (12288 tokens in total) with prompt caching. **Fast chat path:** small talk and messages that are not meant for the bot are answered with a tiny prompt (a few seconds); only messages that ask for a job use the big prompt with all the actions. The bot warms up both prompts when it starts. The owner can write `ceyobot süre` to see where the time of the last answer went.
 
 ## Everything a player can do (new)
 
