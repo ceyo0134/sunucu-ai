@@ -5,10 +5,10 @@ const mineflayer = require("mineflayer");
 const { pathfinder, Movements, goals } = require("mineflayer-pathfinder");
 const { ask } = require("./ai");
 
-const HOST = process.env.MC_HOST || "lunahack.aternos.me";
+const HOST = process.env.MC_HOST || "Oynatrtr.aternos.me";
 const PORT = process.env.MC_PORT ? parseInt(process.env.MC_PORT, 10) : undefined;
 const USERNAME = process.env.MC_USERNAME || "ceyobot";
-const VERSION = process.env.MC_VERSION || "1.21.4";
+const VERSION = process.env.MC_VERSION || undefined; // auto-detected when empty
 const AUTH = process.env.MC_AUTH || "offline";
 const PASSWORD = process.env.MC_PASSWORD;
 if (!PASSWORD) { console.error("MC_PASSWORD is not set"); process.exit(1); }

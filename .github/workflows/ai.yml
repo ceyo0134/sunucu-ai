@@ -33,9 +33,10 @@ jobs:
         env:
           ONCE: "1"
           SESSION_HOURS: "5"
-          MC_HOST: ${{ vars.MC_HOST || 'lunahack.aternos.me' }}
+          MC_HOST: ${{ vars.MC_HOST || 'Oynatrtr.aternos.me' }}
+          MC_PORT: ${{ vars.MC_PORT || '46490' }}
           MC_USERNAME: ${{ vars.MC_USERNAME || 'ceyobot' }}
-          MC_VERSION: ${{ vars.MC_VERSION || '1.21.4' }}
+          MC_VERSION: ${{ vars.MC_VERSION }}
           MC_PASSWORD: ${{ secrets.MC_PASSWORD }}
       - name: Wait 10-20s then start the next round
         if: ${{ !cancelled() }}
