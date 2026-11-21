@@ -289,43 +289,74 @@ module.exports = function makeExtra(ctx) {
     if (!bot.inventory.items().some((i) => i.name === "furnace")) {
       if (!(await ctx.craftItem(bot, t, "furnace", 1, true))) return null;
     }
-    const me = bot.entity.position.floored();
-    for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [-2, -2], [3, 0], [0, 3]]) {
-      const pos = me.offset(dx, 0, dz);
-      const r = await placeAt(bot, pos, "furnace", false).catch(() => "fail");
-      if (r === "ok") { await sleep(300); return bot.blockAt(pos); }
-    }
-    return null;
+    return ctx.placeNearby(bot, t, "furnace"); // free spot nearby, or digs one out of the rock
   }
 
-  // st: { item: output, input, count }
-  async function smeltStep(bot, t, st) {
-    const inp = bot.inventory.items().find((i) => i.name === st.input);
-    const n = Math.min(st.count, inp ? inp.count : 0);
-    if (n < 1) { say(bot, `Eritmek için ${st.input} yok.`); return false; }
-    let fuel = pickFuel(bot, n, st.input === "oak_log" || /_log$/.test(st.input) ? { name: st.input, n } : null);
-    if (!fuel) {
-      t.text = "yakıt topluyorum";
-      await ctx.mineTask(bot, t, "_log", Math.ceil(n / 1.5) + 1, true);
-      fuel = pickFuel(bot, n, /_log$/.test(st.input) ? { name: st.input, n } : null);
+  // How many items the fuel in the inventory can smelt (logs/planks count 1.5, coal 8 ...). "reserve" = logs we want to smelt ourselves.
+  function fuelUnits(bot, reserve) {
+    let sum = 0;
+    for (const it of bot.inventory.items()) {
+      if (FUEL_ITEMS[it.name]) sum += FUEL_ITEMS[it.name] * it.count;
+      else if (/_(log|planks|stem)$/.test(it.name)) sum += 1.5 * Math.max(0, it.count - (reserve && reserve.name === it.name ? reserve.n : 0));
     }
-    if (!fuel) { say(bot, "Fırın için yakıt bulamadım."); return false; }
+    return sum;
+  }
+
+  // Makes sure there is fuel for `n` items: first coal (mines coal ore, tunnels for it), then any wood.
+  async function ensureFuel(bot, t, n, reserve) {
+    let have = fuelUnits(bot, reserve);
+    if (have < n) {
+      t.text = "kömür arıyorum";
+      say(bot, "Yakıt (kömür) lazım, arıyorum.");
+      await ctx.mineTask(bot, t, "coal_ore", Math.max(1, Math.ceil((n - have) / 8)), true).catch(() => 0);
+      have = fuelUnits(bot, reserve);
+    }
+    if (have < n && !t.cancel) {
+      t.text = "yakıt için odun topluyorum";
+      await ctx.mineTask(bot, t, "_log", Math.max(1, Math.ceil((n - have) / 1.5)) + 1, true).catch(() => 0);
+    }
+    return pickFuel(bot, n, reserve);
+  }
+
+  // st: { item: output, input, count }. Works in batches: refuels (finds coal / wood) when the furnace runs dry and keeps going.
+  async function smeltStep(bot, t, st) {
+    const haveInput = () => { const it = bot.inventory.items().find((i) => i.name === st.input); return it ? it.count : 0; };
+    const total = Math.min(st.count, haveInput());
+    if (total < 1) { say(bot, `Eritmek için ${st.input} yok.`); return false; }
+    const logInput = /_log$/.test(st.input);
     const fblock = await getFurnace(bot, t);
     if (!fblock) { say(bot, "Fırın koyacak yer bulamadım."); return false; }
-    const furn = await bot.openFurnace(fblock);
-    try {
-      await furn.putFuel(fuel.it.type, null, fuel.n);
-      await furn.putInput(inp.type, null, n);
+    let done = 0, stuck = 0;
+    while (done < total && !t.cancel && stuck < 3) {
+      const batch = Math.min(total - done, 64, haveInput());
+      if (batch < 1) break;
+      const fuel = await ensureFuel(bot, t, batch, logInput ? { name: st.input, n: batch } : null);
+      if (t.cancel) return false;
+      if (!fuel) { say(bot, "Fırın için yakıt bulamadım."); return false; }
+      await gotoNear(bot, fblock.position, 3, 15000).catch(() => {});
+      let furn;
+      try { furn = await bot.openFurnace(bot.blockAt(fblock.position) || fblock); }
+      catch (e) { log("openFurnace error:", e.message); stuck++; await sleep(1000); continue; }
       let got = 0;
-      const t0 = Date.now(), limit = 20000 + n * 11000;
-      while (got < n && !t.cancel && Date.now() - t0 < limit) {
-        await sleep(2000);
-        if (furn.outputItem()) { const it = await furn.takeOutput(); if (it) got += it.count; }
-        t.text = `${st.item} eritiyorum (${got}/${n})`;
-      }
-      if (got < n && !t.cancel) { say(bot, `${st.item} tam olmadı (${got}/${n}).`); return false; }
-      return got >= n;
-    } finally { try { furn.close(); } catch (_) {} }
+      try {
+        const inp = bot.inventory.items().find((i) => i.name === st.input);
+        await furn.putFuel(fuel.it.type, null, fuel.n);
+        await furn.putInput(inp.type, null, Math.min(batch, inp.count));
+        const t0 = Date.now(), limit = 20000 + batch * 11000;
+        while (got < batch && !t.cancel && Date.now() - t0 < limit) {
+          await sleep(2000);
+          if (furn.outputItem()) { const it = await furn.takeOutput(); if (it) got += it.count; }
+          t.text = `${st.item} eritiyorum (${done + got}/${total})`;
+          if (got < batch && furn.fuel === 0 && !furn.fuelItem() && !furn.outputItem()) break; // ran out of fuel: refuel in the next round
+        }
+        if (got < batch) { try { if (furn.inputItem()) await furn.takeInput(); } catch (_) {} } // take the rest back
+      } catch (e) { log("smelt error:", e.message); }
+      finally { try { furn.close(); } catch (_) {} }
+      done += got;
+      stuck = got > 0 ? 0 : stuck + 1;
+    }
+    if (done < total && !t.cancel) { say(bot, `${st.item} tam olmadı (${done}/${total}).`); return false; }
+    return done >= total;
   }
 
   // ---------- farming ----------

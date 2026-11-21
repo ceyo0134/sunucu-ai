@@ -482,17 +482,43 @@ async function ensurePickaxe(bot, t, block) {
   return craftItem(bot, t, `${tier}_pickaxe`, 1, true);
 }
 
-async function getTable(bot) {
+// Puts a block (crafting table, furnace ...) somewhere near the bot. Free spot first; in a cave or tunnel there is none,
+// so it digs a block of rock out next to it and puts the item into the hole.
+async function placeNearby(bot, t, itemName) {
+  const me = bot.entity.position.floored();
+  const offs = [];
+  for (let r = 1; r <= 3; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+    if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+    for (const dy of [0, 1, -1]) offs.push([dx, dy, dz]);
+  }
+  for (const [dx, dy, dz] of offs) {
+    if (t && t.cancel) return null;
+    const pos = me.offset(dx, dy, dz);
+    const r = await placeAt(bot, pos, itemName, false).catch(() => "fail");
+    if (r === "ok") { await sleep(300); return bot.blockAt(pos); }
+    if (r === "noitem") return null;
+  }
+  for (const [dx, dy, dz] of offs) { // nothing free: break a block out of the way and use its place
+    if (t && t.cancel) return null;
+    const pos = me.offset(dx, dy, dz);
+    const b = bot.blockAt(pos);
+    if (!b || b.boundingBox !== "block" || isProtected(b.name) || /(_ore|debris|_log|leaves)$/.test(b.name)) continue;
+    try {
+      await gotoNear(bot, pos, 3, 8000).catch(() => {});
+      await digBlock(bot, bot.blockAt(pos));
+      await sleep(200);
+      const r = await placeAt(bot, pos, itemName, false).catch(() => "fail");
+      if (r === "ok") { await sleep(300); return bot.blockAt(pos); }
+    } catch (e) { log("placeNearby dig error:", e.message); }
+  }
+  return null;
+}
+
+async function getTable(bot, t) {
   const tb = bot.registry.blocksByName.crafting_table;
   const near = bot.findBlock({ matching: tb.id, maxDistance: 24 });
   if (near) { await gotoNear(bot, near.position, 3, 20000).catch(() => {}); return near; }
-  const me = bot.entity.position.floored();
-  for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [-2, -2], [3, 0], [0, 3]]) {
-    const pos = me.offset(dx, 0, dz);
-    const r = await placeAt(bot, pos, "crafting_table", false).catch(() => "fail");
-    if (r === "ok") { await sleep(300); return bot.blockAt(pos); }
-  }
-  return null;
+  return placeNearby(bot, t, "crafting_table");
 }
 
 async function craftOnce(bot, name, times, table) {
@@ -609,7 +635,7 @@ async function craftItem(bot, t, name, count, quiet) {
         t.text = `${st.item} üretiyorum`;
         let table = null;
         if (st.table) {
-          table = await getTable(bot);
+          table = await getTable(bot, t);
           if (!table) { say(bot, "Tezgah koyacak yer bulamadım."); return false; }
         }
         if (!(await craftOnce(bot, st.item, st.times, table))) { say(bot, `${st.item} üretemedim.`); return false; }
@@ -765,6 +791,7 @@ async function portalTask(bot, t) {
 const X = makeExtra({
   say, log, sleep, gotoNear, digBlock, placeAt, norm, isProtected,
   craftItem: (...a) => craftItem(...a),
+  placeNearby: (...a) => placeNearby(...a),
   mineTask: (...a) => mineTask(...a),
 });
 
@@ -971,9 +998,15 @@ function incoming(user, msg) {
       : "Henüz cevap vermedim, ölçecek bir şey yok.");
     return;
   }
-  const addressed = ADDR_RE.test(msg);
+  const addressed = ADDR_RE.test(msg) || (isOwner(user) && (now - lastSpoke < 60000 || queue.length > 0 || !!task) && !/^\W*(?:haha|ha ha|xd|lol|ok|tmm)\W*$/i.test(msg)); // the owner keeps talking to the bot without repeating its name
   if (!addressed && (!UNPROMPTED || now - lastThink < 20000)) return;
-  pending = { user, msg, addressed, owner: isOwner(user) };
+  if (pending && pending.user === user && now - pending.at < 20000) { // two messages in a row = one request (nothing gets lost)
+    pending.msg = (pending.msg + ". " + msg).slice(0, 256);
+    pending.addressed = pending.addressed || addressed;
+    pending.at = now;
+    return;
+  }
+  pending = { user, msg, addressed, owner: isOwner(user), at: now };
   think();
 }
 
