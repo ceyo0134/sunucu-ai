@@ -156,6 +156,55 @@ const scanDone = (async () => {
   ok("give: exact name wins, no wrong fallback", T.findInvItem(inv(["oak_log", 1], ["birch_log", 9]), "oak_log").name === "oak_log" && T.findInvItem(inv(["birch_log", 5]), "diamond") === null && T.findInvItem(inv(["birch_planks", 4]), "oak_planks").name === "birch_planks");
 })();
 
+// ---- commands: the real server answer is reported, only the owner gives orders ----
+const { summarizeReply } = require("./cmd");
+const cmdDone = (async () => {
+  const noPerm = summarizeReply(["I'm sorry, but you do not have permission to perform this command. Please contact the server administrators if you believe that this is a mistake."]);
+  ok("reply: no permission -> failed + noOp", noPerm.failed && noPerm.noOp && noPerm.text.length <= 110);
+  const unk = summarizeReply(["Unknown or incomplete command, see below for error", "tp ceyo0134<--[HERE]"]);
+  ok("reply: unknown command -> failed + noOp", unk.failed && unk.noOp);
+  const okr = summarizeReply(["Teleported ceyobot to ceyo0134"]);
+  ok("reply: success text passed on", !okr.failed && okr.text === "Teleported ceyobot to ceyo0134");
+  ok("reply: no entity -> failed, not an op problem", summarizeReply(["No entity was found"]).failed && !summarizeReply(["No entity was found"]).noOp);
+  ok("reply: ClearLag spam ignored", summarizeReply(["[ClearLag] Items and entities will be cleared in 300!"]).text === "" && !summarizeReply([]).failed);
+
+  process.env.MC_PASSWORD = process.env.MC_PASSWORD || "unit-test";
+  const B = require("./bot");
+  const T = B._test;
+  const chat = [];
+  const bot = { chat: (m) => chat.push(m), players: {} };
+  T.setCurrent(bot);
+
+  // owner: /tp, server says no permission -> the owner is told, not "sent"
+  T.incoming("ceyo0134", "ceyobot /tp ceyo0134");
+  await new Promise((r) => setTimeout(r, 900));
+  T.cmdReplies.push("I'm sorry, but you do not have permission to perform this command.");
+  await new Promise((r) => setTimeout(r, 2000));
+  ok("cmd: the command really went out", chat[0] === "/tp ceyo0134", chat.join(" | "));
+  ok("cmd: owner is told it failed + op hint", chat.some((c) => c.includes("Komut çalışmadı") && c.includes("/op")) && !chat.some((c) => c === "Komutu gönderdim."), chat.join(" | "));
+
+  // owner: command works -> the server's answer is shown
+  chat.length = 0;
+  T.incoming("ceyo0134", "ceyobot /time set day");
+  await new Promise((r) => setTimeout(r, 900));
+  T.cmdReplies.push("Set the time to 1000");
+  await new Promise((r) => setTimeout(r, 2000));
+  ok("cmd: success shows the server answer", chat.some((c) => c === "Sunucu: Set the time to 1000"), chat.join(" | "));
+
+  // other players: refused once, no commands, no orders
+  chat.length = 0;
+  T.incoming("ahmet", "ceyobot /gamemode creative");
+  ok("owner only: strangers cannot send commands", chat.length === 1 && chat[0].includes("sahibim"), chat.join(" | "));
+  chat.length = 0;
+  T.incoming("ahmet", "ceyobot bana 10 odun topla");
+  T.incoming("ahmet", "ceyobot ev yap");
+  ok("owner only: strangers get one short answer", chat.length === 1 && chat[0] === "Sadece sahibimden komut alıyorum (ceyo0134).", chat.join(" | "));
+  chat.length = 0;
+  T.incoming("ahmet", "naber millet");
+  ok("owner only: unaddressed chat of strangers is ignored", chat.length === 0);
+  T.setCurrent(null);
+})();
+
 // ---- fake world ----
 function makeWorld(ores) {
   const edits = new Map(); // "x,y,z" -> name
@@ -210,6 +259,7 @@ const mkX = (world, said) => makeExtra({
 (async () => {
   await flowDone;
   await scanDone;
+  await cmdDone;
   // tunnel 12 blocks forward through stone
   {
     const w = makeWorld({}); w.bot.entity.position = new Vec3(0.5, 50, 0.5);

@@ -6,7 +6,7 @@ const { pathfinder, Movements, goals } = require("mineflayer-pathfinder");
 const { Vec3 } = require("vec3");
 const makeItem = require("prismarine-item");
 const { ask, SHAPES } = require("./ai");
-const { isOwner, sanitizeCommand } = require("./cmd");
+const { isOwner, sanitizeCommand, summarizeReply, OWNERS } = require("./cmd");
 const { planCraft, toolTierFor, tierRank, bestPickaxeRank, isLog, smeltOutputFor, SMELT } = require("./plan");
 const { trItem, missingFor, askText, classifyReply, gotSome } = require("./need");
 const makeExtra = require("./extra");
@@ -45,6 +45,9 @@ let curJob = null; // queue entry that is running right now
 const ASK_OWNER = process.env.ASK_OWNER !== "0"; // ASK_OWNER=0 -> always gather everything itself
 const ASK_ALL = process.env.ASK_ALL === "1"; // also ask for cheap basics (logs, cobblestone ...)
 const NEED_TTL = 15 * 60 * 1000;
+const OWNER_ONLY = process.env.OWNER_ONLY !== "0"; // only the owner gives orders (OWNER_ONLY=0 -> everybody, like before)
+const cmdReplies = []; // chat lines that came back right after a command (the server's answer)
+const refused = new Map(); // player -> last time we told them "owner only"
 
 // ---------- helpers ----------
 function clean(s) {
@@ -74,6 +77,19 @@ async function runCommand(bot, raw) {
   log("CMD:", r.cmd);
   try { bot.chat("/" + r.cmd); } catch (_) {}
   return r;
+}
+
+// Sends the command, waits for the server's answer and tells the owner what really happened
+// (not op, unknown command, player not found ...). quiet=true: only speak up when it failed.
+async function commandAndTell(bot, raw, quiet) {
+  cmdReplies.length = 0;
+  const res = await runCommand(bot, raw);
+  if (!res.ok) { say(bot, String(res.reason).startsWith("denied") ? "O komut güvenlik için yasak." : "Bu komutu çalıştıramam."); return res; }
+  await sleep(1600); // the answer arrives as a chat line
+  const sum = summarizeReply(cmdReplies.splice(0));
+  if (sum.failed) say(bot, sum.noOp ? `Komut çalışmadı, sunucu: "${sum.text}". Muhtemelen op değilim: /op ${USERNAME}` : `Komut çalışmadı, sunucu: "${sum.text}"`);
+  else if (!quiet) say(bot, sum.text ? `Sunucu: ${sum.text}` : "Komutu gönderdim, sunucu cevap vermedi.");
+  return res;
 }
 
 const PROTECTED = /(bedrock|barrier|command_block|structure_block|jigsaw|spawner|chest|barrel|shulker_box|furnace|smoker|hopper|dispenser|dropper|beacon|ender|portal|_bed$|sign|lectern|jukebox|crafting_table|enchanting|anvil|brewing|spawn)/;
@@ -692,8 +708,7 @@ async function execute(bot, a, job) {
     case "pickup": await runTask(bot, "pickup", "eşya topluyorum", (t) => X.pickupTask(bot, t), job.owner); break;
     case "cmd": {
       if (!job.owner) { say(bot, "Komutları sadece sahibim verebilir."); break; }
-      const res = await runCommand(bot, a.command);
-      if (!res.ok) say(bot, String(res.reason).startsWith("denied") ? "O komut güvenlik için yasak." : "Bu komutu çalıştıramam.");
+      await commandAndTell(bot, a.command, true);
       break;
     }
     default: break;
@@ -750,6 +765,7 @@ async function act(bot, r, job) {
       default:
         if (queue.length >= QUEUE_MAX) { say(bot, "Kuyruk dolu, biraz bekle."); return; }
         if (a.action === "cmd" && !job.owner) { say(bot, "Komutları sadece sahibim verebilir."); break; }
+        if (OWNER_ONLY && !job.owner) break; // e.g. the "someone joined" greeting never starts jobs
         queue.push({ a, job: { user: job.user, owner: job.owner } });
         added++;
     }
@@ -795,10 +811,7 @@ function incoming(user, msg) {
     const b = current;
     if (!b) return;
     if (!isOwner(user)) { say(b, "Komutları sadece sahibim verebilir."); return; }
-    runCommand(b, direct[1]).then((res) => {
-      if (!res.ok) say(b, String(res.reason).startsWith("denied") ? "O komut güvenlik için yasak." : "Bu komutu çalıştıramam.");
-      else say(b, "Komutu gönderdim.");
-    }).catch(() => {});
+    commandAndTell(b, direct[1], false).catch(() => {});
     return;
   }
   if (need && user === need.user && current && (ADDR_RE.test(msg) || now - need.askedAt < 120000)) {
@@ -811,6 +824,10 @@ function incoming(user, msg) {
     }
   }
   const addressed = ADDR_RE.test(msg);
+  if (OWNER_ONLY && !isOwner(user)) {
+    if (addressed && current && now - (refused.get(user) || 0) > 30000) { refused.set(user, now); say(current, `Sadece sahibimden komut alıyorum (${OWNERS[0] || "owner"}).`); }
+    return;
+  }
   if (!addressed && (!UNPROMPTED || now - lastThink < 20000)) return;
   pending = { user, msg, addressed, owner: isOwner(user) };
   think();
@@ -963,6 +980,10 @@ function connect(msLeft) {
     bot.on("chat", (u, m) => incoming(u, m));
     bot.on("messagestr", (msg) => {
       const m = msg.toLowerCase();
+      if (Date.now() - lastCmdAt < 3000) { // right after our command: keep everything that is not a player talking
+        const who = msg.match(/^<([^>\s]{3,17})>\s/) || msg.match(/^(?:\[[^\]]{1,24}\]\s*)*([A-Za-z0-9_.]{3,17})\s*(?:»|›|:|>>|>)\s/);
+        if (!(who && bot.players[who[1]]) && cmdReplies.length < 8) cmdReplies.push(msg.slice(0, 200));
+      }
       if (Date.now() - lastCmdAt < 4000 && /permission|izniniz yok|yetkin yok|yetkiniz yok|unknown or incomplete|unknown command|bilinmeyen komut|do not have/.test(m)) noOpAt = Date.now();
       if (/success|giris yapildi|giriş yapıldı|basariyla|başarıyla|welcome back/.test(m) && authTries > 0) { authed = true; return; }
       if (/\/register|\/kayit|\/kayıt/.test(m) && !/already|zaten/.test(m)) { doAuth("register"); return; }
@@ -1021,7 +1042,7 @@ async function runSession() {
   log("Session finished");
 }
 
-module.exports = { craftItem, mineTask, invCounts, _test: { scanBlocks, wanderFor, findInvItem, blockMatcher, queue, setCur: (q) => { curJob = q; }, getNeed: () => need, clearNeed: () => { need = null; }, canAsk, resumeNeed, needLine } };
+module.exports = { craftItem, mineTask, invCounts, _test: { incoming, setCurrent: (b) => { current = b; }, cmdReplies, scanBlocks, wanderFor, findInvItem, blockMatcher, queue, setCur: (q) => { curJob = q; }, getNeed: () => need, clearNeed: () => { need = null; }, canAsk, resumeNeed, needLine } };
 
 if (require.main === module) (async () => {
   do {

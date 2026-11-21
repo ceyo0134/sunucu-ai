@@ -41,4 +41,15 @@ function sanitizeCommand(raw, secret) {
   return { ok: true, cmd: s };
 }
 
-module.exports = { isOwner, sanitizeCommand, OWNERS };
+
+// What did the server answer after we sent a command? lines = chat lines that arrived right after it.
+const NOOP_RE = /permission|izniniz yok|yetkin yok|yetkiniz yok|unknown or incomplete|unknown command|bilinmeyen komut|do not have/i;
+const FAIL_RE = new RegExp(NOOP_RE.source + "|no entity was found|no player was found|player not found|bulunamad|incorrect argument|expected |invalid ", "i");
+function summarizeReply(lines) {
+  const ls = (lines || []).map((l) => String(l || "").replace(/\u00a7./g, "").replace(/\s+/g, " ").trim())
+    .filter((l) => l && !/clearlag|will be cleared/i.test(l));
+  const failed = ls.find((l) => FAIL_RE.test(l));
+  return { failed: !!failed, noOp: ls.some((l) => NOOP_RE.test(l)), text: (failed || ls[0] || "").slice(0, 110) };
+}
+
+module.exports = { isOwner, sanitizeCommand, summarizeReply, OWNERS };
