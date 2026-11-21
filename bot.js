@@ -456,6 +456,15 @@ const CRAFT_ALIAS = {
   iron: "iron_ingot", gold: "gold_ingot", copper: "copper_ingot", demir: "iron_ingot", "altın": "gold_ingot", altin: "gold_ingot", demir_kulce: "iron_ingot", "demir_külçe": "iron_ingot", altin_kulce: "gold_ingot", "altın_külçe": "gold_ingot",
 };
 
+// "taş kazma", "demir kılıç", "elmas zırh" ... (the model normally writes the English id, this is a fallback)
+(function addToolAliases() {
+  const tiers = { "tahta": "wooden", taş: "stone", "taş": "stone", tas: "stone", demir: "iron", elmas: "diamond", "altın": "golden", altin: "golden" };
+  const tools = { kazma: "pickaxe", balta: "axe", "kılıç": "sword", kilic: "sword", "kürek": "shovel", kurek: "shovel", "çapa": "hoe", capa: "hoe",
+    "miğfer": "helmet", migfer: "helmet", "zırh": "chestplate", zirh: "chestplate", pantolon: "leggings", bot: "boots" };
+  for (const [tr, tier] of Object.entries(tiers)) for (const [tt, tool] of Object.entries(tools)) CRAFT_ALIAS[`${tr}_${tt}`] = `${tier}_${tool}`;
+  Object.assign(CRAFT_ALIAS, { "yemek": "cooked_beef", biftek: "cooked_beef", "cam": "glass", "tuğla": "bricks", tugla: "bricks", "çubuk": "stick", cubuk: "stick" });
+})();
+
 function invCounts(bot) {
   const inv = {};
   bot.inventory.items().forEach((i) => { inv[i.name] = (inv[i.name] || 0) + i.count; });
@@ -795,10 +804,16 @@ async function think() {
     const mayTalk = () => job.addressed || job.system || Date.now() - lastSpoke > 60000;
     let saidEarly = false;
     // the model writes "say" first, so the answer goes to chat while the actions are still being generated
-    const r = await ask(history.slice(-6), job, (text) => {
+    let r = await ask(history.slice(-6), job, (text) => {
       if (job.owner && DENIAL_RE.test(text)) { log("AI denial suppressed:", text); return; }
       if (current === bot && mayTalk()) { saidEarly = true; log("AI said after", Date.now() - t, "ms"); say(bot, text); }
     });
+    if (!r.actions.length && job.addressed && !job.system && !job.retried && CLAIM_RE.test(r.say || "")) {
+      job.retried = true; // it said it is doing something but wrote no actions: ask once more, this time insisting
+      log("AI said it works but gave no actions -> retry");
+      const r2 = await ask(history.slice(-6), job, () => {});
+      if (r2.actions.length) r = { say: saidEarly ? "" : r.say, actions: r2.actions };
+    }
     log("LLM stats:", JSON.stringify(getStats()));
     log("AI (" + (Date.now() - t) + "ms):", JSON.stringify({ say: r.say, actions: r.actions.map((a) => [a.action, a.item, a.shape, a.count > 1 ? a.count : "", a.target, a.command, a.x, a.y, a.z].filter((v) => v !== "" && v !== null && v !== undefined)) }));
     if (current === bot) {
@@ -819,6 +834,7 @@ async function think() {
 }
 
 // "ceyobot /time set day", "ceyobot/tp ceyo0134" (no space) -> strict form, everyone
+const CLAIM_RE = /(yapıyorum|yapayım|yapıyoruz|başlıyorum|başlayayım|topluyorum|kuruyorum|kazıyorum|eritiyorum|pişiriyorum|hallediyorum|hallederim|geliyor!|geliyorum|hazırlıyorum|üretiyorum|getiriyorum|gidiyorum)/i;
 const DIRECT_RE = new RegExp("^\\s*(?:" + USERNAME + "|ceyo|bot)\\b[,:]?\\s*\\/(\\S.*)$", "i");
 // "ceyobot şunu kullan /tp ceyo0134 yaz" -> looser form, only for owners (a "/" a few words after the name)
 const LOOSE_RE = new RegExp("^\\s*(?:" + USERNAME + "|ceyo|bot)\\b[^\\/]{0,40}\\/([a-z0-9_:.-]+(?:\\s.*)?)$", "i");

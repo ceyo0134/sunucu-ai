@@ -42,6 +42,7 @@ Kurallar:
 - mine: maden yakında yoksa bot kendisi tünel açıp arar. craft: demir/elmas alet ve zırh dahil her şeyi yapar (külçeyi kendisi bulup eritir). Av, yakıt, tezgah, fırın hep otomatik.
 - Blok isimlerini İngilizce Minecraft kimliğiyle yaz: odun=oak_log (herhangi bir ağaç olur), beyaz odun/huş=birch_log, ladin=spruce_log, akasya=acacia_log, koyu meşe=dark_oak_log, orman ağacı=jungle_log, taş=stone, kömür=coal_ore, demir=iron_ore, elmas=diamond_ore, kum=sand, toprak=dirt, tahta=oak_planks, kırıktaş=cobblestone, cam=glass, kazma=wooden_pickaxe, taş kazma=stone_pickaxe, kılıç=wooden_sword, balta=wooden_axe, kürek=wooden_shovel, tezgah=crafting_table, sandık=chest, fırın=furnace, meşale=torch, demir külçe=iron_ingot, altın külçe=gold_ingot, demir miğfer=iron_helmet, demir zırh=iron_chestplate, demir pantolon=iron_leggings, demir bot=iron_boots, elmas kılıç=diamond_sword, olta=fishing_rod, kalkan=shield, yay=bow, kova=bucket, yatak=white_bed, ekmek=bread, biftek=cooked_beef, havuç=carrot, patates=potato, buğday=wheat, lapis=lapis_lazuli, kırmızıtaş=redstone_ore.
 - "target" oyuncunun adıdır, yazmazsan mesajı yazan oyuncu seçilir.
+- TEMEL İŞLER HEPSİ YAPILIR: odun/taş/kömür/demir/elmas toplamak (mine), alet-silah-zırh-tezgah-fırın-sandık-meşale-yatak-kova yapmak (craft: malzemeyi, tezgahı, kömürü, demiri KENDİ toplar, eritir, üretir), demir/altın/bakır ısıtmak-eritmek, yemek pişirmek, cam yapmak (smelt), avlanmak, ekin, balık, tünel, ev. "ısıt", "erit", "pişir", "külçe yap" = smelt. Bir şey "yap/hazırla/üret/çıkar" denirse craft; "bul/topla/kaz" denirse mine. Zor görünse bile REDDETME, uygun hareketleri sırayla yaz. İstenen şey tek hareketle olmuyorsa küçük adımlara böl (örn. "demir kılıç yap" = craft iron_sword, bot kendisi demiri bulup eritir).
 - SORU SORMA, KENDİN KARAR VER: malzeme, boyut, yer gibi şeyleri oyuncuya sorma. Söylenmediyse sen seç (ev/duvar/kule için envanterde ne varsa: cobblestone, oak_planks, stone; yoksa cobblestone) ve HEMEN actions yaz. "sen seç", "fark etmez", "hadi başla", "devam" gibi cevaplarda önceki isteği ("Son sohbet"e bak) actions ile yap. Asla sadece "yapıyorum" deyip actions'ı boş bırakma.
 - SAHİP için Minecraft'ın HER ŞEYİ "cmd" ile yapılır (bot op ise). Komutu / olmadan yaz; "~" botun konumudur, oyuncunun yanında yapmak için "execute at <oyuncu> run ..." kullan. Birden çok komutu actions'a art arda yaz. Örnekler: eşya "give <oyuncu> minecraft:diamond 64", "enchant <oyuncu> sharpness 5", "effect give <oyuncu> minecraft:speed 600 2", "gamemode creative <oyuncu>", "tp <kim> <nereye>", "time set day|night", "weather clear|rain", "difficulty peaceful", "summon minecraft:zombie ~ ~ ~", "kill @e[type=minecraft:zombie,distance=..30]", "setblock ~ ~ ~ minecraft:stone", "fill x1 y1 z1 x2 y2 z2 minecraft:glass [hollow|replace|outline]", "clone ...", "xp add <oyuncu> 30 levels", "gamerule keepInventory true", "setworldspawn", "spawnpoint <oyuncu>", "title <oyuncu> title {\"text\":\"Selam\"}", "particle ...", "playsound ...". Büyük yapıları (kutu, havuz, duvar, köprü) sahip isterse fill ile tek komutta yap; sahip değilse build/place kullan.
 
@@ -67,6 +68,11 @@ Mesaj: "${BOT} eşyaları sandığa koy" -> {"say":"Koyuyorum!","actions":[{"act
 Mesaj: "${BOT} sandıktan 20 odun al" -> {"say":"Alıyorum!","actions":[{"action":"take","item":"oak_log","count":20}]}
 Mesaj: "${BOT} 20 blok tünel aç" -> {"say":"Kazıyorum!","actions":[{"action":"tunnel","count":20}]}
 Mesaj: "${BOT} gündüz yap" (sahip) -> {"say":"Gündüz oluyor!","actions":[{"action":"cmd","command":"time set day"}]}
+Mesaj: "${BOT} demir ısıt" -> {"say":"Demiri bulup eritiyorum!","actions":[{"action":"smelt","item":"iron_ingot","count":8}]}
+Mesaj: "${BOT} ham demirleri külçe yap" -> {"say":"Eritiyorum!","actions":[{"action":"smelt","item":"iron_ingot","count":16}]}
+Mesaj: "${BOT} yemek pişir" -> {"say":"Pişiriyorum!","actions":[{"action":"smelt","item":"cooked_beef","count":8}]}
+Mesaj: "${BOT} sıfırdan demir kazma yap" -> {"say":"Odundan başlıyorum!","actions":[{"action":"craft","item":"iron_pickaxe"}]}
+Mesaj: "${BOT} odun topla sonra tezgah ve fırın yap" -> {"say":"Tamam!","actions":[{"action":"mine","item":"oak_log","count":12},{"action":"craft","item":"crafting_table"},{"action":"craft","item":"furnace"}]}
 Mesaj: "${BOT} bana bi ev yap" -> {"say":"Taştan bir ev kuruyorum!","actions":[{"action":"build","shape":"house","item":"cobblestone","count":6}]}
 Mesaj: "sen seç hadi başla" (son sohbette ev istenmişti, sen malzeme sormuştun) -> {"say":"Taştan yapıyorum!","actions":[{"action":"build","shape":"house","item":"cobblestone","count":6}]}
 Mesaj: "${BOT} bana 64 elmas ver" (sahip, yazan: ceyo0134) -> {"say":"Buyur!","actions":[{"action":"cmd","command":"give ceyo0134 minecraft:diamond 64"}]}
@@ -96,7 +102,7 @@ const TASK_RE = new RegExp("(" + [
   "zıpla", "salla", "\\bbak", "yürü", "koş", "\\bbin", "sandık", "giy", "eşya", "envanter", "kendin", "bende", "kazma", "kılıç", "zırh", "kule", "duvar", "\\bev\\b", "odun", "taş",
   "elmas", "demir", "kömür", "komut", "gündüz", "gece", "iyileş", "skin", "oyun", "zaman", "yağmur", "\\bek\\b", "pişir", "erit", "taşı", "götür", "yanıma", "yanına", "buraya", "şuraya",
   "heal", "give", "come", "follow", "stop", "tamam", "evet", "hayır", "kazan", "yık", "patlat", "sür", "oku", "yaz",
-  "başla", "basla", "seç", "\\bsec\\b", "devam", "tamamla", "hadi", "olur", "peki", "çağır", "cagir", "öldür", "ışın", "büyü", "doldur", "temizle", "sil", "kutu", "havuz", "köprü", "merdiven", "kapı",
+  "ısıt", "isit", "hazırla", "hazirla", "üret", "uret", "çıkar", "cikar", "yemek", "külçe", "kulce", "çubuk", "sopa", "tezgah", "fırın", "alet", "silah", "ağaç", "agac", "başla", "basla", "seç", "\\bsec\\b", "devam", "tamamla", "hadi", "olur", "peki", "çağır", "cagir", "öldür", "ışın", "büyü", "doldur", "temizle", "sil", "kutu", "havuz", "köprü", "merdiven", "kapı",
 ].join("|") + ")", "i");
 
 function isChatOnly(job) {
@@ -161,6 +167,7 @@ function buildUser(history, job) {
     `Son mesaj ${job.user} kişisinden: "${String(job.msg).slice(0, 200)}"\n` +
     `Sana mı seslendi: ${job.addressed ? "evet" : "hayır"}\n` +
     `Konuşan sahip mi: ${job.owner ? "evet" : "hayır"}\n` +
+    (job.retried ? `DİKKAT: önceki cevabında iş yapacağını söyledin ama "actions" boştu. Şimdi "actions" listesini MUTLAKA doldur.\n` : "") +
     `Sadece JSON ile cevap ver.`
   );
 }
