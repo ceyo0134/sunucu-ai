@@ -255,10 +255,14 @@ module.exports = function makeExtra(ctx) {
       const r = await digDown(bot, t, targetY, dirs[di], scan);
       if (r === "found" || scan()) return true;
     }
-    for (let leg = 0; leg < 8 && !t.cancel && Date.now() - start < 6 * 60000; leg++) {
-      await tunnel(bot, t, dirs[di], 28, scan);
+    // arms: forward, then back through the start and beyond (the tunnel already exists, so that is cheap),
+    // then sideways and back, so the search covers a cross instead of running away in one direction
+    const d = dirs[di], p = new Vec3(d.z, 0, d.x), neg = (v) => new Vec3(-v.x, -v.y, -v.z);
+    const legs = [[d, 28], [neg(d), 56], [p, 28], [neg(p), 56], [d, 28], [neg(d), 56], [p, 28], [neg(p), 56]];
+    for (const [dir, len] of legs) {
+      if (t.cancel || Date.now() - start > 6 * 60000) break;
+      await tunnel(bot, t, dir, len, scan);
       if (scan()) return true;
-      di = (di + 1) % 4;
     }
     return scan();
   }

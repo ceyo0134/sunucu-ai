@@ -112,8 +112,20 @@ const mkX = (world, said) => makeExtra({
     const ores = {}; for (let dx = -40; dx <= 40; dx += 1) ores[`${dx},16,${-20}`] = "iron_ore"; // a vein line across the map
     const w = makeWorld(ores); w.bot.entity.position = new Vec3(0.5, 61, 0.5);
     const said = []; const X = mkX(w, said);
+    const realRandom = Math.random; Math.random = () => 0.9; // fixed start direction (-z) so the test is repeatable
     const found = await X.exploreFor(w.bot, { cancel: false }, (b) => b.name === "iron_ore", "iron_ore");
+    Math.random = realRandom;
     ok("exploreFor finds iron", found === true, `y=${w.bot.entity.position.y} pos=${w.bot.entity.position} said: ${said.join("|")}`);
+  }
+  // vein is behind the starting direction: the arms that come back through the start must find it
+  {
+    const ores = {}; for (let dx = -40; dx <= 40; dx++) ores[`${dx},16,${-20}`] = "iron_ore";
+    const w = makeWorld(ores); w.bot.entity.position = new Vec3(0.5, 61, 0.5);
+    const said = []; const X = mkX(w, said);
+    const realRandom = Math.random; Math.random = () => 0.3; // di=1 -> +z, away from the vein
+    const found = await X.exploreFor(w.bot, { cancel: false }, (b) => b.name === "iron_ore", "iron_ore");
+    Math.random = realRandom;
+    ok("exploreFor turns around", found === true, `pos=${w.bot.entity.position}`);
   }
   // no explore for non-ore
   {
