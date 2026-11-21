@@ -9,6 +9,14 @@ const ALIAS = { cook: "smelt", furnace: "smelt", equip: "armor", wear: "armor", 
   fishing: "fish", kill: "hunt", attack: "hunt", dig: "tunnel", tunnel_mine: "tunnel", descend: "digdown", barter: "trade", collect: "pickup", dismount_ride: "dismount", nether: "portal", enter_nether: "portal", nether_portal: "portal" };
 const SHAPES = ["tower", "wall", "platform", "house"];
 const BIG_COUNT = new Set(["mine", "break", "craft", "smelt", "hunt", "tunnel", "fish", "take"]); // these may ask for hundreds
+// Thinking: the model reasons before it answers a job request (better plans for long chains, but slower on a CPU).
+// THINK=0 turns it off. Small talk stays fast (no thinking) unless THINK_CHAT=1.
+const THINK = process.env.THINK !== "0";
+const THINK_CHAT = process.env.THINK_CHAT === "1";
+// removes <think>...</think> (and an unfinished one) in case the server leaves the reasoning inside the answer
+function stripThink(t) {
+  return String(t || "").replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<think>[\s\S]*$/i, "").replace(/<\|channel>thought[\s\S]*?<channel\|>/gi, "");
+}
 const MAX_ACTIONS = 40; // per message; more can be given in later messages (the queue holds 1000)
 
 const SYSTEM = `Sen ${BOT} adında, Minecraft sunucusunda oyuncularla birlikte takılan samimi, esprili ve yardımsever bir arkadaş botsun. Türkçe konuşursun.
@@ -174,6 +182,7 @@ function salvageActions(text) {
 }
 
 function parse(text) {
+  text = stripThink(text);
   const m = String(text || "").match(/\{[\s\S]*\}/);
   if (m) {
     try { return normalize(JSON.parse(m[0])); } catch (_) {}
@@ -222,7 +231,7 @@ async function readStream(res, onSay, started) {
     const delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
     if (delta) text += delta;
     if (!said && onSay) {
-      const s = sayFromPartial(text);
+      const s = sayFromPartial(stripThink(text));
       if (s !== null) {
         said = true; sayMs = Date.now() - started;
         if (s.trim()) { try { onSay(s); } catch (_) {} }
@@ -252,16 +261,17 @@ function buildChatUser(history, job) {
   );
 }
 
-async function ask(history, job, onSay) {
+async function ask(history, job, onSay, noThink) {
   const t0 = Date.now();
   const fast = isChatOnly(job);
+  const think = !noThink && (fast ? THINK_CHAT : THINK);
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 150000);
+  const timer = setTimeout(() => ctl.abort(), think ? 420000 : 150000);
   try {
     // two llama.cpp slots: slot 0 keeps the big prompt cached, slot 1 the small chat prompt, so they never throw each other out
     const body = fast
-      ? { messages: [{ role: "system", content: SYSTEM_CHAT }, { role: "user", content: buildChatUser(history, job) }], temperature: 0.8, top_p: 0.95, top_k: 64, max_tokens: 70, stream: true, cache_prompt: true, id_slot: 1, chat_template_kwargs: { enable_thinking: false } }
-      : { messages: [{ role: "system", content: SYSTEM }, { role: "user", content: buildUser(history, job) }], temperature: 0.4, top_p: 0.95, top_k: 64, max_tokens: 1200, response_format: { type: "json_object" }, stream: true, cache_prompt: true, id_slot: 0, chat_template_kwargs: { enable_thinking: false } };
+      ? { messages: [{ role: "system", content: SYSTEM_CHAT }, { role: "user", content: buildChatUser(history, job) }], temperature: 0.8, top_p: 0.95, top_k: 64, max_tokens: think ? 1500 : 70, stream: true, cache_prompt: true, id_slot: 1, chat_template_kwargs: { enable_thinking: think } }
+      : { messages: [{ role: "system", content: SYSTEM }, { role: "user", content: buildUser(history, job) }], temperature: 0.4, top_p: 0.95, top_k: 64, max_tokens: think ? 5000 : 1200, ...(think ? {} : { response_format: { type: "json_object" } }), stream: true, cache_prompt: true, id_slot: 0, chat_template_kwargs: { enable_thinking: think } };
     const res = await fetch(BASE + "/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -276,7 +286,11 @@ async function ask(history, job, onSay) {
       raw = data.choices && data.choices[0] && data.choices[0].message.content;
     }
     if (lastStats) lastStats.fast = fast;
-    return Object.assign(fast ? parseChat(raw, job) : parse(raw), { raw });
+    if (think && !fast && !/\{/.test(stripThink(raw))) { // it was still thinking when the token limit hit: answer again without thinking (fast)
+      clearTimeout(timer);
+      return ask(history, job, onSay, true);
+    }
+    return Object.assign(fast ? parseChat(stripThink(raw), job) : parse(raw), { raw });
   } finally {
     clearTimeout(timer);
   }
@@ -285,7 +299,7 @@ async function ask(history, job, onSay) {
 // The long system prompt (~4000 tokens) is slow on a CPU the first time (about 2 minutes). Send it once at startup so llama.cpp keeps it cached
 // and the first real chat message is as fast as the rest.
 async function warmup() {
-  const one = async (system, user, slot) => {
+  const one = async (system, user, slot, think) => {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 300000);
     try {
@@ -293,7 +307,7 @@ async function warmup() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: ctl.signal,
-        body: JSON.stringify({ messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 1, stream: false, cache_prompt: true, id_slot: slot, chat_template_kwargs: { enable_thinking: false } }),
+        body: JSON.stringify({ messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 1, stream: false, cache_prompt: true, id_slot: slot, chat_template_kwargs: { enable_thinking: !!think } }),
       });
       if (!res.ok) throw new Error("LLM HTTP " + res.status);
       await res.json();
@@ -302,8 +316,8 @@ async function warmup() {
     }
   };
   const job = { user: "ceyo0134", msg: "merhaba", addressed: false, owner: false, status: "başlıyor" };
-  await one(SYSTEM_CHAT, buildChatUser(["ceyo0134: merhaba"], job), 1); // small: a few seconds, chat works right away
-  await one(SYSTEM, buildUser(["ceyo0134: merhaba"], job), 0); // big: about 2 minutes
+  await one(SYSTEM_CHAT, buildChatUser(["ceyo0134: merhaba"], job), 1, THINK_CHAT); // small: a few seconds, chat works right away
+  await one(SYSTEM, buildUser(["ceyo0134: merhaba"], job), 0, THINK); // big: about 2 minutes
 }
 
 module.exports = { ask, warmup, getStats, isChatOnly, parseChat, parse, salvageActions, sayFromPartial, ACTIONS, SHAPES };

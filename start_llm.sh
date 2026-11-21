@@ -12,7 +12,7 @@ fi
 run_llm() {
   docker rm -f llm >/dev/null 2>&1 || true
   docker run -d --name llm -p 127.0.0.1:8080:8080 -v "$PWD/models:/models" "$IMG" \
-    -m "/models/${MODEL#models/}" --host 0.0.0.0 --port 8080 -c 12288 -t 4 -np 2 $1
+    -m "/models/${MODEL#models/}" --host 0.0.0.0 --port 8080 -c 24576 -t 4 -np 2 $1
 }
 
 # returns 0 when the server answers, 1 when it crashed or took too long
