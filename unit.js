@@ -193,6 +193,14 @@ const cmdDone = (async () => {
   await new Promise((r) => setTimeout(r, 2000));
   ok("cmd: success shows the server answer", chat.some((c) => c === "Sunucu: Set the time to 1000"), chat.join(" | "));
 
+  // owner: "/skin set Yener yaz" -> server rejects the extra word -> retried once without "yaz"
+  chat.length = 0;
+  T.incoming("ceyo0134", "ceyobot /skin set Yener yaz");
+  await new Promise((r) => setTimeout(r, 900));
+  T.cmdReplies.push('Invalid command argument: null');
+  await new Promise((r) => setTimeout(r, 3200));
+  ok("cmd: filler word dropped and command retried", chat[0] === "/skin set Yener yaz" && chat.includes("/skin set Yener"), chat.join(" | "));
+
   // other players: they may give jobs, but never "/" commands
   chat.length = 0;
   T.incoming("ahmet", "ceyobot /gamemode creative");

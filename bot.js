@@ -80,12 +80,23 @@ async function runCommand(bot, raw) {
 
 // Sends the command, waits for the server's answer and tells the owner what really happened
 // (not op, unknown command, player not found ...). quiet=true: only speak up when it failed.
-async function commandAndTell(bot, raw, quiet) {
+// Turkish filler words players put after a command ("/skin set Yener yaz") that the server reads as one argument too many.
+const FILLER_RE = /(?:\s+(?:yaz|yap|et|ver|koy|lütfen|lutfen|hadi|çalıştır|calistir|kullan|dene|len|ya|be|abi))+\s*$/i;
+const SYNTAX_FAIL_RE = /invalid|incorrect|syntax|usage|argument|too many|kullanım|geçersiz|gecersiz/i;
+
+async function commandAndTell(bot, raw, quiet, retried) {
   cmdReplies.length = 0;
   const res = await runCommand(bot, raw);
   if (!res.ok) { say(bot, String(res.reason).startsWith("denied") ? "O komut güvenlik için yasak." : "Bu komutu çalıştıramam."); return res; }
   await sleep(1600); // the answer arrives as a chat line
   const sum = summarizeReply(cmdReplies.splice(0));
+  if (sum.failed && !sum.noOp && !retried && SYNTAX_FAIL_RE.test(sum.text || "")) {
+    const trimmed = String(raw).replace(FILLER_RE, "");
+    if (trimmed && trimmed !== String(raw).trim() && trimmed.split(/\s+/).length >= 1) { // retry once without the trailing filler word(s)
+      log("CMD retry without filler:", trimmed);
+      return commandAndTell(bot, trimmed, quiet, true);
+    }
+  }
   if (sum.failed) say(bot, sum.noOp ? `Komut çalışmadı, sunucu: "${sum.text}". Muhtemelen op değilim: /op ${USERNAME}` : `Komut çalışmadı, sunucu: "${sum.text}"`);
   else if (!quiet) say(bot, sum.text ? `Sunucu: ${sum.text}` : "Komutu gönderdim, sunucu cevap vermedi.");
   return res;
