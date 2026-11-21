@@ -3,7 +3,7 @@ const BASE = process.env.LLM_URL || "http://127.0.0.1:8080";
 const BOT = process.env.MC_USERNAME || "ceyobot";
 
 const ACTIONS = ["none", "look", "jump", "wave", "come", "follow", "stop", "skip", "mine", "break", "place", "build", "give", "heal", "cmd", "goto", "guard", "fight", "craft", "sleep",
-  "smelt", "armor", "store", "take", "farm", "fish", "hunt", "tunnel", "digdown", "trade", "enchant", "ride", "dismount", "pickup"];
+  "smelt", "armor", "store", "take", "farm", "fish", "hunt", "tunnel", "digdown", "trade", "enchant", "ride", "dismount", "pickup", "retry", "selfgather"];
 // words the model may use instead of the exact action name
 const ALIAS = { cook: "smelt", furnace: "smelt", equip: "armor", wear: "armor", chest: "store", put: "store", withdraw: "take", harvest: "farm", plant: "farm",
   fishing: "fish", kill: "hunt", attack: "hunt", dig: "tunnel", tunnel_mine: "tunnel", descend: "digdown", barter: "trade", collect: "pickup", dismount_ride: "dismount" };
@@ -31,10 +31,12 @@ Kurallar:
   farm (ekinleri hasat et, tekrar ek; çapa+tohum varsa toprağı sürüp ek), fish (balık tut: "count" kez), hunt (avla: "item" = cow, pig, chicken, sheep, zombie, spider, skeleton, creeper ..., "count" kaç tane),
   tunnel (baktığın yöne tünel aç: "count" uzunluk), digdown (merdiven gibi aşağı kaz: "y" hedef yükseklik, yoksa 12 blok), trade (en yakın köylüyle takas: "item" almak istediğin şey, yoksa takasları söyler),
   enchant (yakındaki büyü masasında "item" eşyayı büyüle), ride (yakındaki tekne/at/domuz/vagona bin), dismount (in), pickup (yerdeki eşyaları topla),
+  retry (bekleyen malzeme isteğinde sahip eşyayı verdiyse yerden toplayıp işe devam et), selfgather (sahip "kendin topla / bende yok" dediyse bekleyen işi malzemeleri kendin toplayarak yap),
   stop (HER ŞEYİ bırak: o an yapılan işi de bekleyen tüm kuyruğu da iptal eder), skip (sadece o an yapılan işi bırak, kuyruğa devam et).
 - Yeni işler kuyruğun SONUNA eklenir. Oyuncu "hemen / şimdi / acil" derse ya da önceki işlerden vazgeçerse listenin başına {"action":"stop"} koy, sonra yeni işleri yaz.
 - "dur", "bırak", "iptal", "yeter", "vazgeç" gibi şeylerde sen karar ver: hepsini bırakacaksa stop, sadece şu anki işi bırakacaksa skip.
 - Durum satırında envanter, yaptığın iş ve kuyruk var. Kuyruk doluysa ve oyuncu yeni bir şey isterse sonuna ekle, istersen bunu kısaca söyle.
+- Malzeme eksikse bot sahipten kendisi ister ve nedenini hatırlar (sen karışma, durum satırında \"bekliyorsun\" yazar). Bekliyorsan: sahip eşyayı verdiğini söylerse (\"al\", \"verdim\", \"al elmas\") retry, \"kendin topla\" / \"bende yok\" derse selfgather, vazgeçerse stop yaz; say boş kalsın.
 - op, stop(komut), ban, whitelist gibi tehlikeli komutları asla "cmd" ile yazma.
 - mine: maden yakında yoksa bot kendisi tünel açıp arar. craft: demir/elmas alet ve zırh dahil her şeyi yapar (külçeyi kendisi bulup eritir). Av, yakıt, tezgah, fırın hep otomatik.
 - Blok isimlerini İngilizce Minecraft kimliğiyle yaz: odun=oak_log, taş=stone, kömür=coal_ore, demir=iron_ore, elmas=diamond_ore, kum=sand, toprak=dirt, tahta=oak_planks, kırıktaş=cobblestone, cam=glass, kazma=wooden_pickaxe, taş kazma=stone_pickaxe, kılıç=wooden_sword, balta=wooden_axe, kürek=wooden_shovel, tezgah=crafting_table, sandık=chest, fırın=furnace, meşale=torch, demir külçe=iron_ingot, altın külçe=gold_ingot, demir miğfer=iron_helmet, demir zırh=iron_chestplate, demir pantolon=iron_leggings, demir bot=iron_boots, elmas kılıç=diamond_sword, olta=fishing_rod, kalkan=shield, yay=bow, kova=bucket, yatak=white_bed, ekmek=bread, biftek=cooked_beef, havuç=carrot, patates=potato, buğday=wheat, lapis=lapis_lazuli, kırmızıtaş=redstone_ore.
@@ -64,6 +66,8 @@ Mesaj: "${BOT} gündüz yap" (sahip) -> {"say":"Gündüz oluyor!","actions":[{"a
 Mesaj: "${BOT} dur" (çok işin var) -> {"say":"Tamam, hepsini bıraktım.","actions":[{"action":"stop"}]}
 Mesaj: "${BOT} şunu bırak sıradakine geç" -> {"say":"Tamam, geçiyorum.","actions":[{"action":"skip"}]}
 Mesaj: "${BOT} hemen buraya gel sonra odun topla" -> {"say":"Geliyorum!","actions":[{"action":"stop"},{"action":"come"},{"action":"mine","item":"oak_log","count":10}]}
+Mesaj: "${BOT} al elmas" (durumda sahipten bekliyorsun) -> {"say":"","actions":[{"action":"retry"}]}
+Mesaj: "${BOT} bende yok kendin topla" (durumda sahipten bekliyorsun) -> {"say":"","actions":[{"action":"selfgather"}]}
 Mesaj: "(sunucuya yeni girdi)" -> {"say":"Hoş geldin!","actions":[{"action":"wave"}]}
 Mesaj: "ahmet: hadi madene gidelim" (sana seslenilmedi) -> {"say":"","actions":[]}`;
 
@@ -104,7 +108,7 @@ async function ask(history, job) {
   const lines = history.map((l) => String(l).slice(0, 200)).join("\n");
   const user =
     `Son sohbet:\n${lines}\n\n` +
-    `Durum: ${String(job.status || "bilinmiyor").slice(0, 700)}\n` +
+    `Durum: ${String(job.status || "bilinmiyor").slice(0, 900)}\n` +
     `Son mesaj ${job.user} kişisinden: "${String(job.msg).slice(0, 200)}"\n` +
     `Sana mı seslendi: ${job.addressed ? "evet" : "hayır"}\n` +
     `Konuşan sahip mi: ${job.owner ? "evet" : "hayır"}\n` +

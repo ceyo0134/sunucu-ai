@@ -63,3 +63,12 @@ Not supported (yet): redstone, brewing, anvils, nether portals, the End, elytra,
 Protected blocks (chests, furnaces, beds, signs, spawners ...) are never mined or dug through.
 
 **Tests:** `npm test` runs offline checks (recipe planner on two Minecraft versions, the action parser, tunnels / digging / ore search in a fake world). The **test** workflow runs them first, then the model and a short bot session on the server.
+
+## Asking the owner for materials (new)
+
+- When the **owner** gives a job and materials are missing (for example `ceyobot elmas kazma yap` needs 3 diamonds), the bot does not wander off to find them. It says what it needs, walks to the owner and **waits**. The job and everything queued behind it are parked and remembered together with the reason.
+- Give the items (drop them next to the bot, or `/give`). `al elmas`, `verdim`, `buyur` ... also work: the bot picks up the drops, remembers it was making the diamond pickaxe and **continues that job**, then the rest of the queue. It notices the items on its own too, even if you say nothing. If something is still missing it asks for the rest only.
+- Say `kendin topla` / `bende yok` and it gathers the materials itself (that job never asks again). `vazgeç` / `boşver` drops it. `dur` / `stop` also clears the wait.
+- Raw ores are asked for as the finished item (`demir külçe`, not ham demir). Cheap basics (logs, cobblestone, dirt, sand, gravel, coal) are always gathered without asking.
+- Only the owner is asked. Other players' requests are still gathered by the bot itself.
+- Variables: `ASK_OWNER=0` turns asking off completely, `ASK_ALL=1` asks for the cheap basics too.

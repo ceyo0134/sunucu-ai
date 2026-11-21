@@ -31,6 +31,72 @@ ok("smeltOutputFor", smeltOutputFor("raw_iron") === "iron_ingot" && smeltOutputF
 const p = parse('{"say":"x","actions":[{"action":"cook","item":"cooked_beef","count":4},{"action":"Harvest"},{"action":"hunt","item":"cow","count":3},{"action":"digdown","y":-50},{"action":"hack"}]}');
 ok("parser aliases", p.actions.map((a) => a.action).join() === "smelt,farm,hunt,digdown" && p.actions[3].y === -50);
 
+// ---- ask the owner for missing materials ----
+const { missingFor, askText, classifyReply, trItem, gotSome } = require("./need");
+{
+  const mc = require("minecraft-data")("1.21.4");
+  const plan = (n, c = 1, inv = {}) => planCraft(mc, n, c, { ...inv });
+  const m1 = missingFor(plan("diamond_pickaxe"));
+  ok("ask: diamond_pickaxe -> only 3 diamonds", m1.diamond === 3 && Object.keys(m1).length === 1, JSON.stringify(m1));
+  const m2 = missingFor(plan("iron_pickaxe"));
+  ok("ask: iron_pickaxe asks ingots, not raw ore", m2.iron_ingot === 3 && !m2.raw_iron && Object.keys(m2).length === 1, JSON.stringify(m2));
+  ok("ask: wooden/stone tools -> gather by itself", !Object.keys(missingFor(plan("wooden_pickaxe"))).length && !Object.keys(missingFor(plan("stone_pickaxe"))).length);
+  ok("ask: ASK_ALL asks for logs too", missingFor(plan("wooden_pickaxe"), true).oak_log > 0);
+  ok("ask: nothing missing when the items are there", !Object.keys(missingFor(plan("diamond_pickaxe", 1, { diamond: 3 }))).length);
+  ok("ask: partial -> only the rest", missingFor(plan("diamond_pickaxe", 1, { diamond: 1 })).diamond === 2);
+  ok("ask: fishing_rod asks for string", missingFor(plan("fishing_rod")).string >= 1);
+  ok("ask: netherite counts as missing", missingFor(plan("netherite_ingot")).netherite_ingot === 1);
+  const txt = askText(m1, "diamond_pickaxe");
+  ok("askText", txt.startsWith("Elmas kazma için 3 elmas lazım") && txt.includes("kendin topla") && txt.length <= 200, txt);
+  ok("trItem", trItem("iron_ingot") === "demir külçe" && trItem("iron_pickaxe") === "demir kazma" && trItem("foo_bar") === "foo bar");
+  const reply = (m) => classifyReply(m);
+  ok("reply: al elmas / verdim -> gave", reply("Al elmas") === "gave" && reply("ceyobot al") === "gave" && reply("tamam al bakalım") === "gave" && reply("verdim yere attım") === "gave");
+  ok("reply: kendin topla -> self", reply("kendin topla") === "self" && reply("ben yok kendin topla") === "self" && reply("ceyobot bende yok") === "self" && reply("kendin al") === "self");
+  ok("reply: vazgeç -> cancel", reply("vazgeç") === "cancel" && reply("boşver") === "cancel");
+  ok("reply: normal chat -> null", reply("şu ağacı kır") === null && reply("naber") === null && reply("x ".repeat(60) + "al") === null);
+  ok("gotSome", gotSome({ diamond: 3 }, { diamond: true }, 0).more && !gotSome({ diamond: 3 }, { diamond: true }, 3).more);
+  const q = parse('{"say":"","actions":[{"action":"retry"},{"action":"selfgather"}]}');
+  ok("parser: retry/selfgather", q.actions.map((a) => a.action).join() === "retry,selfgather");
+}
+
+// ---- the whole ask -> wait -> continue flow with a fake bot ----
+const flowDone = (async () => {
+  process.env.MC_PASSWORD = process.env.MC_PASSWORD || "unit-test";
+  const B = require("./bot");
+  const T = B._test;
+  const mc = require("minecraft-data")("1.21.4");
+  const chat = [];
+  const inv = [];
+  const bot = { registry: mc, players: {}, chat: (m) => chat.push(m), findBlock: () => null, inventory: { items: () => inv } };
+  const give = (name, count) => { const e = inv.find((i) => i.name === name); if (e) e.count += count; else inv.push({ name, count }); };
+  const owner = { user: "ceyo0134", owner: true };
+  const later = { a: { action: "give", item: "diamond_pickaxe", count: 1 }, job: owner };
+  T.queue.length = 0; T.queue.push(later);
+  T.setCur({ a: { action: "craft", item: "diamond_pickaxe", count: 1 }, job: owner });
+  const r = await B.craftItem(bot, { cancel: false }, "diamond_pickaxe", 1, false);
+  const n = T.getNeed();
+  ok("flow: asks the owner and stops", r === false && chat.some((c) => c.includes("3 elmas")), chat.join(" | "));
+  ok("flow: remembers the job and parks the queue", n && n.a.item === "diamond_pickaxe" && n.rest.length === 1 && T.queue.length === 0 && T.needLine().includes("elmas kazma"));
+  give("diamond", 3);
+  ok("flow: items arrive", require("./need").gotSome(B.invCounts(bot), n.watch, n.snap).more);
+  T.resumeNeed(bot, false);
+  ok("flow: continues the same job first, the rest after it", T.queue.length === 2 && T.queue[0].a.item === "diamond_pickaxe" && T.queue[0].a.action === "craft" && T.queue[1] === later && !T.queue[0].job.noAsk && !T.getNeed());
+  const r2 = await B.craftItem(bot, { cancel: false }, "diamond_pickaxe", 1, true).catch(() => "threw");
+  ok("flow: with the diamonds it does not ask again", !chat.slice(1).some((c) => c.includes("lazım")), chat.join(" | "));
+
+  // "kendin topla": never asks again for that job
+  T.queue.length = 0; inv.length = 0; chat.length = 0;
+  T.setCur({ a: { action: "craft", item: "diamond_pickaxe", count: 1 }, job: owner });
+  await B.craftItem(bot, { cancel: false }, "diamond_pickaxe", 1, false);
+  T.resumeNeed(bot, true);
+  ok("flow: kendin topla -> noAsk", T.queue[0].job.noAsk === true && chat.at(-1).includes("kendim"), chat.at(-1));
+  T.setCur(T.queue[0]);
+  ok("flow: noAsk job does not ask", T.canAsk() === false);
+  T.setCur({ a: {}, job: { user: "ahmet", owner: false } });
+  ok("flow: other players are never asked", T.canAsk() === false);
+  T.setCur(null); T.queue.length = 0; T.clearNeed();
+})();
+
 // ---- fake world ----
 function makeWorld(ores) {
   const edits = new Map(); // "x,y,z" -> name
@@ -83,6 +149,7 @@ const mkX = (world, said) => makeExtra({
 });
 
 (async () => {
+  await flowDone;
   // tunnel 12 blocks forward through stone
   {
     const w = makeWorld({}); w.bot.entity.position = new Vec3(0.5, 50, 0.5);

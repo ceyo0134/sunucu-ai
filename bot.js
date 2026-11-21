@@ -7,7 +7,8 @@ const { Vec3 } = require("vec3");
 const makeItem = require("prismarine-item");
 const { ask, SHAPES } = require("./ai");
 const { isOwner, sanitizeCommand } = require("./cmd");
-const { planCraft, toolTierFor, tierRank, bestPickaxeRank, isLog, smeltOutputFor } = require("./plan");
+const { planCraft, toolTierFor, tierRank, bestPickaxeRank, isLog, smeltOutputFor, SMELT } = require("./plan");
+const { trItem, missingFor, askText, classifyReply, gotSome } = require("./need");
 const makeExtra = require("./extra");
 
 const HOST = process.env.MC_HOST || "Oynatrtr.aternos.me";
@@ -38,6 +39,12 @@ const queue = []; // pending jobs {a, job}; the model fills it, "stop" empties i
 const QUEUE_MAX = 1000;
 let pumping = false, stopEpoch = 0;
 let lastCmdAt = 0, noOpAt = 0; // last command time / last "no permission" reply
+// Missing materials: the bot asks the owner, parks the job (+ the rest of the queue) here and remembers why.
+let need = null; // { user, a, job, rest, items, watch, forItem, askedAt, snap, last, nudging }
+let curJob = null; // queue entry that is running right now
+const ASK_OWNER = process.env.ASK_OWNER !== "0"; // ASK_OWNER=0 -> always gather everything itself
+const ASK_ALL = process.env.ASK_ALL === "1"; // also ask for cheap basics (logs, cobblestone ...)
+const NEED_TTL = 15 * 60 * 1000;
 
 // ---------- helpers ----------
 function clean(s) {
@@ -105,7 +112,7 @@ function status(bot) {
     .map((p) => `${p.username} (${Math.round(p.entity.position.distanceTo(me))}m)`)
     .slice(0, 5).join(", ") || "yok";
   const xp = bot.experience ? bot.experience.level : 0;
-  return `can ${Math.round(bot.health)}/20, açlık ${bot.food}/20, oyun modu ${bot.game.gameMode}, konum ${Math.round(me.x)} ${Math.round(me.y)} ${Math.round(me.z)}, xp seviyesi ${xp}, ` +
+  return `${needLine()}can ${Math.round(bot.health)}/20, açlık ${bot.food}/20, oyun modu ${bot.game.gameMode}, konum ${Math.round(me.x)} ${Math.round(me.y)} ${Math.round(me.z)}, xp seviyesi ${xp}, ` +
     `envanter: ${invText}, yakındaki oyuncular: ${near}, şu an yaptığın iş: ${task ? task.text : "yok"}, ` +
     `kuyrukta bekleyen iş: ${queue.length}${queue.length ? " (sıradakiler: " + queue.slice(0, 5).map((q) => q.a.action + (q.a.item ? ":" + q.a.item : "") + (q.a.count > 1 ? " x" + q.a.count : "")).join(", ") + ")" : ""}`;
 }
@@ -422,6 +429,61 @@ async function craftOnce(bot, name, times, table) {
   return false;
 }
 
+// ---------- missing materials: ask the owner, remember why, continue when they give it ----------
+const capTr = (x) => { const t = trItem(x); return t.charAt(0).toLocaleUpperCase("tr") + t.slice(1); };
+
+function canAsk() { return !!(ASK_OWNER && curJob && curJob.job && curJob.job.owner && !curJob.job.noAsk); }
+
+function needLine() {
+  if (!need) return "";
+  const list = Object.entries(need.items).map(([k, v]) => `${v} ${trItem(k)}`).join(", ");
+  return `${need.user} kişisinden ${list} bekliyorsun (${trItem(need.forItem)} için; verince ya da "kendin topla" deyince işe devam edersin), `;
+}
+
+// Parks the running job and the rest of the queue, tells the owner what is missing, walks over to them.
+async function requestFromOwner(bot, miss, forItem) {
+  const q = curJob;
+  const watch = {};
+  for (const k of Object.keys(miss)) { watch[k] = true; (SMELT[k] || []).forEach((i) => { watch[i] = true; }); } // raw ore also counts for ingots
+  const n = need = {
+    user: q.job.user, a: q.a, job: q.job, rest: queue.splice(0), items: miss, watch, forItem,
+    askedAt: Date.now(), snap: gotSome(invCounts(bot), watch, 0).sum, last: -1, nudging: false,
+  };
+  say(bot, askText(miss, forItem));
+  const e = (bot.players[n.user] || {}).entity;
+  if (e) await gotoNear(bot, e.position, 3, 15000).catch(() => {});
+  return false;
+}
+
+// Puts the parked job (and what was queued behind it) back at the front of the queue.
+// self=true: the owner said "kendin topla" -> this job never asks again.
+function resumeNeed(bot, self) {
+  const n = need;
+  if (!n) return false;
+  need = null;
+  const job = Object.assign({}, n.job, self ? { noAsk: true } : {});
+  queue.unshift({ a: n.a, job }, ...n.rest);
+  say(bot, self ? "Tamam, kendim toplarım!" : `Sağ ol! ${capTr(n.forItem)} için devam ediyorum.`);
+  pump(bot);
+  return true;
+}
+
+// The owner says they gave it: pick up drops, wait a few seconds for the items, then continue.
+async function nudgeNeed(bot) {
+  const n = need;
+  if (!n || n.nudging) return;
+  n.nudging = true;
+  try {
+    for (let i = 0; i < 6 && need === n && !gotSome(invCounts(bot), n.watch, n.snap).more; i++) {
+      if (!task) await runTask(bot, "pickup", "eşya topluyorum", (t) => X.collectDrops(bot, t, 24, 40), false);
+      await sleep(1000);
+    }
+  } finally { n.nudging = false; }
+  if (need !== n) return;
+  if (gotSome(invCounts(bot), n.watch, n.snap).more) resumeNeed(bot, false);
+  else say(bot, `Bir şey alamadım. ${Object.entries(n.items).map(([k, v]) => `${v} ${trItem(k)}`).join(", ")} lazım, ya da "kendin topla" de.`);
+}
+
 // Plans the whole chain (trees -> planks -> sticks -> table -> tool, stone for stone tools ...) and does it step by step.
 async function craftItem(bot, t, name, count, quiet) {
   const tb = bot.registry.blocksByName.crafting_table;
@@ -432,6 +494,10 @@ async function craftItem(bot, t, name, count, quiet) {
   let steps;
   try { steps = planCraft(bot.registry, name, count, inv); }
   catch (e) { log("plan error:", e.message); say(bot, "Bunun nasıl yapılacağını çözemedim."); return false; }
+  if (canAsk()) { // owner job + materials we do not have -> ask the owner first
+    const miss = missingFor(steps, ASK_ALL);
+    if (Object.keys(miss).length) return requestFromOwner(bot, miss, name);
+  }
   const bad = steps.find((s) => s.kind === "unsupported");
   if (bad) { say(bot, `${bad.item} lazım ama onu yapamıyorum (Nether/boss gerekiyor). Bana ${bad.item} verirsen yaparım.`); return false; }
   if (!quiet && steps.some((s) => s.kind === "gather")) say(bot, "Malzemeleri toplayıp yapıyorum, biraz sürer.");
@@ -590,6 +656,7 @@ async function execute(bot, a, job) {
 
 function stopAll(bot) {
   stopEpoch++;
+  need = null;
   queue.length = 0;
   cancelTask();
   guarding = null;
@@ -606,10 +673,12 @@ async function pump(bot) {
     while (queue.length && current === bot) {
       const q = queue.shift();
       log("JOB:", JSON.stringify({ action: q.a.action, item: q.a.item, count: q.a.count, left: queue.length }));
+      curJob = q;
       try { await execute(bot, q.a, q.job); } catch (e) { log("job error:", e.message); }
+      finally { curJob = null; }
       ran++;
     }
-    if (ran >= 2 && !queue.length && current === bot && epoch === stopEpoch) say(bot, "Tüm işler bitti!");
+    if (ran >= 2 && !queue.length && !need && current === bot && epoch === stopEpoch) say(bot, "Tüm işler bitti!");
   } finally {
     pumping = false;
     if (queue.length && current === bot) setTimeout(() => pump(bot), 200); // something was added at the very end
@@ -624,6 +693,8 @@ async function act(bot, r, job) {
     switch (a.action) {
       case "stop": stopAll(bot); break;
       case "skip": cancelTask(); break;
+      case "retry": nudgeNeed(bot).catch(() => {}); break;
+      case "selfgather": resumeNeed(bot, true); break;
       case "jump":
         bot.setControlState("jump", true);
         setTimeout(() => bot.setControlState("jump", false), 300);
@@ -684,6 +755,15 @@ function incoming(user, msg) {
     }).catch(() => {});
     return;
   }
+  if (need && user === need.user && current && (ADDR_RE.test(msg) || now - need.askedAt < 120000)) {
+    const kind = classifyReply(msg); // "Al elmas" / "kendin topla" / "vazgeç" while we wait for the owner
+    if (kind) {
+      if (kind === "self") resumeNeed(current, true);
+      else if (kind === "cancel") { need = null; say(current, "Tamam, vazgeçtim."); }
+      else nudgeNeed(current).catch(() => {});
+      return;
+    }
+  }
   const addressed = ADDR_RE.test(msg);
   if (!addressed && (!UNPROMPTED || now - lastThink < 20000)) return;
   pending = { user, msg, addressed, owner: isOwner(user) };
@@ -729,6 +809,15 @@ function startIdle(bot, timers) {
   timers.push(setInterval(() => {
     if (!armoring) { armoring = true; X.equipBest(bot).catch(() => {}).finally(() => { armoring = false; }); }
   }, 10000));
+  // waiting for the owner: continue as soon as the wanted items show up in the inventory (given, dropped or /give)
+  timers.push(setInterval(() => {
+    const n = need;
+    if (!n || n.nudging || current !== bot) return;
+    if (Date.now() - n.askedAt > NEED_TTL) { need = null; return; }
+    const g = gotSome(invCounts(bot), n.watch, n.snap);
+    if (!g.more) { n.last = -1; return; }
+    if (g.sum === n.last) resumeNeed(bot, false); else n.last = g.sum; // unchanged for one poll = the drop is finished
+  }, 1500));
   // eat when hungry
   let eating = false;
   timers.push(setInterval(async () => {
@@ -886,7 +975,7 @@ async function runSession() {
   log("Session finished");
 }
 
-module.exports = { craftItem, mineTask, invCounts };
+module.exports = { craftItem, mineTask, invCounts, _test: { queue, setCur: (q) => { curJob = q; }, getNeed: () => need, clearNeed: () => { need = null; }, canAsk, resumeNeed, needLine } };
 
 if (require.main === module) (async () => {
   do {
