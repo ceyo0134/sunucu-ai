@@ -5,7 +5,7 @@ const mineflayer = require("mineflayer");
 const { pathfinder, Movements, goals } = require("mineflayer-pathfinder");
 const { Vec3 } = require("vec3");
 const makeItem = require("prismarine-item");
-const { ask, warmup, SHAPES } = require("./ai");
+const { ask, warmup, getStats, SHAPES } = require("./ai");
 const { isOwner, sanitizeCommand, summarizeReply } = require("./cmd");
 const { planCraft, toolTierFor, tierRank, bestPickaxeRank, isLog, smeltOutputFor, SMELT } = require("./plan");
 const { trItem, missingFor, askText, classifyReply, gotSome } = require("./need");
@@ -797,6 +797,7 @@ async function think() {
     const r = await ask(history.slice(-6), job, (text) => {
       if (current === bot && mayTalk()) { saidEarly = true; log("AI said after", Date.now() - t, "ms"); say(bot, text); }
     });
+    log("LLM stats:", JSON.stringify(getStats()));
     log("AI (" + (Date.now() - t) + "ms):", JSON.stringify({ say: r.say, actions: r.actions.map((a) => [a.action, a.item, a.shape, a.count > 1 ? a.count : "", a.target, a.command, a.x, a.y, a.z].filter((v) => v !== "" && v !== null && v !== undefined)) }));
     if (current === bot) {
       if (r.say && !saidEarly && mayTalk()) say(bot, r.say);
@@ -836,6 +837,14 @@ function incoming(user, msg) {
       else nudgeNeed(current).catch(() => {});
       return;
     }
+  }
+  if (current && isOwner(user) && new RegExp("^\\W*(?:" + USERNAME + "|ceyo|bot)\\W+(?:süre|sure|gecikme|latency|ping)\\W*$", "i").test(msg)) {
+    const st = getStats(); // owner diagnostic: "ceyobot süre" shows where the time of the last answer went
+    const sec = (ms) => (ms === undefined || ms === null ? "?" : (ms / 1000).toFixed(1) + "sn");
+    say(current, st
+      ? `Son cevap ${sec(st.totalMs)}: ilk söz ${sec(st.sayMs)}, prompt ${st.promptN ?? "?"} token (${st.cacheN ?? "?"} önbellekten) ${sec(st.promptMs)}, üretim ${st.predN ?? "?"} token ${sec(st.predMs)}.`
+      : "Henüz cevap vermedim, ölçecek bir şey yok.");
+    return;
   }
   const addressed = ADDR_RE.test(msg);
   if (!addressed && (!UNPROMPTED || now - lastThink < 20000)) return;

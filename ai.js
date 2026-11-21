@@ -105,6 +105,10 @@ function parse(text) {
   return normalize({ say: String(text || "").trim().slice(0, 200) });
 }
 
+// timings of the last answer (from llama.cpp), so the owner can ask "ceyobot süre" and see where the time went
+let lastStats = null;
+function getStats() { return lastStats; }
+
 function buildUser(history, job) {
   const lines = history.map((l) => String(l).slice(0, 200)).join("\n");
   return (
@@ -125,9 +129,9 @@ function sayFromPartial(text) {
 }
 
 // Reads the llama.cpp stream (SSE). onSay is called as soon as the "say" text is complete, before the actions are even written.
-async function readStream(res, onSay) {
+async function readStream(res, onSay, started) {
   const decoder = new TextDecoder();
-  let buf = "", text = "", said = false;
+  let buf = "", text = "", said = false, timings = null, sayMs = null;
   const feed = (line) => {
     line = line.trim();
     if (!line.startsWith("data:")) return;
@@ -135,12 +139,13 @@ async function readStream(res, onSay) {
     if (!payload || payload === "[DONE]") return;
     let j;
     try { j = JSON.parse(payload); } catch (_) { return; }
+    if (j.timings) timings = j.timings;
     const delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
     if (delta) text += delta;
     if (!said && onSay) {
       const s = sayFromPartial(text);
       if (s !== null) {
-        said = true;
+        said = true; sayMs = Date.now() - started;
         if (s.trim()) { try { onSay(s); } catch (_) {} }
       }
     }
@@ -151,10 +156,16 @@ async function readStream(res, onSay) {
     while ((i = buf.indexOf("\n")) >= 0) { feed(buf.slice(0, i)); buf = buf.slice(i + 1); }
   }
   if (buf) feed(buf);
+  const t = timings || {};
+  lastStats = {
+    promptN: t.prompt_n, cacheN: t.cache_n, promptMs: t.prompt_ms, predN: t.predicted_n, predMs: t.predicted_ms,
+    sayMs, totalMs: Date.now() - started,
+  };
   return text;
 }
 
 async function ask(history, job, onSay) {
+  const t0 = Date.now();
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 150000);
   try {
@@ -176,7 +187,7 @@ async function ask(history, job, onSay) {
     });
     if (!res.ok) throw new Error("LLM HTTP " + res.status);
     let raw;
-    if (res.body && typeof res.body[Symbol.asyncIterator] === "function") raw = await readStream(res, onSay);
+    if (res.body && typeof res.body[Symbol.asyncIterator] === "function") raw = await readStream(res, onSay, t0);
     else { // no stream available: plain JSON answer
       const data = await res.json();
       raw = data.choices && data.choices[0] && data.choices[0].message.content;
@@ -214,4 +225,4 @@ async function warmup() {
   }
 }
 
-module.exports = { ask, warmup, parse, sayFromPartial, ACTIONS, SHAPES };
+module.exports = { ask, warmup, getStats, parse, sayFromPartial, ACTIONS, SHAPES };

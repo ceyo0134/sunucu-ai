@@ -201,6 +201,11 @@ const cmdDone = (async () => {
   await new Promise((r) => setTimeout(r, 3200));
   ok("cmd: filler word dropped and command retried", chat[0] === "/skin set Yener yaz" && chat.includes("/skin set Yener"), chat.join(" | "));
 
+  // owner diagnostic
+  chat.length = 0;
+  T.incoming("ceyo0134", "ceyobot süre");
+  ok("diag: owner can ask for the last timing", chat.length === 1 && chat[0].startsWith("Henüz cevap vermedim"), chat.join(" | "));
+
   // other players: they may give jobs, but never "/" commands
   chat.length = 0;
   T.incoming("ahmet", "ceyobot /gamemode creative");
