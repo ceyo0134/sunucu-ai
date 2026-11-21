@@ -2,7 +2,7 @@
 const assert = require("assert");
 const { Vec3 } = require("vec3");
 const { planCraft, smeltOutputFor } = require("./plan");
-const { parse } = require("./ai");
+const { parse, sayFromPartial } = require("./ai");
 const makeExtra = require("./extra");
 
 let fails = 0;
@@ -30,6 +30,8 @@ ok("smeltOutputFor", smeltOutputFor("raw_iron") === "iron_ingot" && smeltOutputF
 // ---- parser ----
 const p = parse('{"say":"x","actions":[{"action":"cook","item":"cooked_beef","count":4},{"action":"Harvest"},{"action":"hunt","item":"cow","count":3},{"action":"digdown","y":-50},{"action":"hack"}]}');
 ok("parser aliases", p.actions.map((a) => a.action).join() === "smelt,farm,hunt,digdown" && p.actions[3].y === -50);
+ok("stream: say is found only once it is complete", sayFromPartial('{"say":"Gel') === null && sayFromPartial('{"say":"Geliyorum!","acti') === "Geliyorum!");
+ok("stream: escaped quotes in say", sayFromPartial('{"say":"O \\"iyi\\" bir gün","actions":[]}') === 'O "iyi" bir gün');
 
 // ---- ask the owner for missing materials ----
 const { missingFor, askText, classifyReply, trItem, gotSome } = require("./need");

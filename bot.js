@@ -5,7 +5,7 @@ const mineflayer = require("mineflayer");
 const { pathfinder, Movements, goals } = require("mineflayer-pathfinder");
 const { Vec3 } = require("vec3");
 const makeItem = require("prismarine-item");
-const { ask, SHAPES } = require("./ai");
+const { ask, warmup, SHAPES } = require("./ai");
 const { isOwner, sanitizeCommand, summarizeReply } = require("./cmd");
 const { planCraft, toolTierFor, tierRank, bestPickaxeRank, isLog, smeltOutputFor, SMELT } = require("./plan");
 const { trItem, missingFor, askText, classifyReply, gotSome } = require("./need");
@@ -780,10 +780,15 @@ async function think() {
     if (!bot) return;
     job.status = status(bot);
     const t = Date.now();
-    const r = await ask(history.slice(-10), job);
+    const mayTalk = () => job.addressed || job.system || Date.now() - lastSpoke > 60000;
+    let saidEarly = false;
+    // the model writes "say" first, so the answer goes to chat while the actions are still being generated
+    const r = await ask(history.slice(-6), job, (text) => {
+      if (current === bot && mayTalk()) { saidEarly = true; log("AI said after", Date.now() - t, "ms"); say(bot, text); }
+    });
     log("AI (" + (Date.now() - t) + "ms):", JSON.stringify({ say: r.say, actions: r.actions.map((a) => [a.action, a.item, a.shape, a.count > 1 ? a.count : "", a.target, a.command, a.x, a.y, a.z].filter((v) => v !== "" && v !== null && v !== undefined)) }));
     if (current === bot) {
-      if (r.say && (job.addressed || job.system || Date.now() - lastSpoke > 60000)) say(bot, r.say);
+      if (r.say && !saidEarly && mayTalk()) say(bot, r.say);
       await act(bot, r, job);
     }
   } catch (e) {
@@ -1039,6 +1044,8 @@ async function runSession() {
 module.exports = { craftItem, mineTask, invCounts, _test: { incoming, setCurrent: (b) => { current = b; }, cmdReplies, scanBlocks, wanderFor, findInvItem, blockMatcher, queue, setCur: (q) => { curJob = q; }, getNeed: () => need, clearNeed: () => { need = null; }, canAsk, resumeNeed, needLine } };
 
 if (require.main === module) (async () => {
+  const w = Date.now();
+  warmup().then(() => log("LLM warm-up done in", Math.round((Date.now() - w) / 1000), "s")).catch((e) => log("LLM warm-up failed:", e.message));
   do {
     await runSession();
     if (ONCE) break;

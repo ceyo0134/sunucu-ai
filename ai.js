@@ -105,17 +105,58 @@ function parse(text) {
   return normalize({ say: String(text || "").trim().slice(0, 200) });
 }
 
-async function ask(history, job) {
+function buildUser(history, job) {
   const lines = history.map((l) => String(l).slice(0, 200)).join("\n");
-  const user =
+  return (
     `Son sohbet:\n${lines}\n\n` +
-    `Durum: ${String(job.status || "bilinmiyor").slice(0, 900)}\n` +
+    `Durum: ${String(job.status || "bilinmiyor").slice(0, 700)}\n` +
     `Son mesaj ${job.user} kişisinden: "${String(job.msg).slice(0, 200)}"\n` +
     `Sana mı seslendi: ${job.addressed ? "evet" : "hayır"}\n` +
     `Konuşan sahip mi: ${job.owner ? "evet" : "hayır"}\n` +
-    `Sadece JSON ile cevap ver.`;
+    `Sadece JSON ile cevap ver.`
+  );
+}
+
+// Finds the finished "say" string in the partial JSON the model has written so far (null while it is still being written).
+function sayFromPartial(text) {
+  const m = /"say"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text);
+  if (!m) return null;
+  try { return JSON.parse('"' + m[1] + '"'); } catch (_) { return m[1]; }
+}
+
+// Reads the llama.cpp stream (SSE). onSay is called as soon as the "say" text is complete, before the actions are even written.
+async function readStream(res, onSay) {
+  const decoder = new TextDecoder();
+  let buf = "", text = "", said = false;
+  const feed = (line) => {
+    line = line.trim();
+    if (!line.startsWith("data:")) return;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") return;
+    let j;
+    try { j = JSON.parse(payload); } catch (_) { return; }
+    const delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
+    if (delta) text += delta;
+    if (!said && onSay) {
+      const s = sayFromPartial(text);
+      if (s !== null) {
+        said = true;
+        if (s.trim()) { try { onSay(s); } catch (_) {} }
+      }
+    }
+  };
+  for await (const chunk of res.body) {
+    buf += decoder.decode(chunk, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n")) >= 0) { feed(buf.slice(0, i)); buf = buf.slice(i + 1); }
+  }
+  if (buf) feed(buf);
+  return text;
+}
+
+async function ask(history, job, onSay) {
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 240000);
+  const timer = setTimeout(() => ctl.abort(), 150000);
   try {
     const res = await fetch(BASE + "/v1/chat/completions", {
       method: "POST",
@@ -124,22 +165,53 @@ async function ask(history, job) {
       body: JSON.stringify({
         messages: [
           { role: "system", content: SYSTEM },
-          { role: "user", content: user },
+          { role: "user", content: buildUser(history, job) },
         ],
         temperature: 0.5,
-        max_tokens: 700,
+        max_tokens: 450,
         response_format: { type: "json_object" },
-        stream: false,
+        stream: true,
         cache_prompt: true,
       }),
     });
     if (!res.ok) throw new Error("LLM HTTP " + res.status);
-    const data = await res.json();
-    const raw = data.choices && data.choices[0] && data.choices[0].message.content;
+    let raw;
+    if (res.body && typeof res.body[Symbol.asyncIterator] === "function") raw = await readStream(res, onSay);
+    else { // no stream available: plain JSON answer
+      const data = await res.json();
+      raw = data.choices && data.choices[0] && data.choices[0].message.content;
+    }
     return Object.assign(parse(raw), { raw });
   } finally {
     clearTimeout(timer);
   }
 }
 
-module.exports = { ask, parse, ACTIONS, SHAPES };
+// The long system prompt (~4000 tokens) is slow on a CPU the first time (about 2 minutes). Send it once at startup so llama.cpp keeps it cached
+// and the first real chat message is as fast as the rest.
+async function warmup() {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 300000);
+  try {
+    const res = await fetch(BASE + "/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: ctl.signal,
+      body: JSON.stringify({
+        messages: [
+          { role: "system", content: SYSTEM },
+          { role: "user", content: buildUser(["ceyo0134: merhaba"], { user: "ceyo0134", msg: "merhaba", addressed: false, owner: false, status: "başlıyor" }) },
+        ],
+        max_tokens: 1,
+        stream: false,
+        cache_prompt: true,
+      }),
+    });
+    if (!res.ok) throw new Error("LLM HTTP " + res.status);
+    await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = { ask, warmup, parse, sayFromPartial, ACTIONS, SHAPES };
