@@ -5,6 +5,7 @@ const { planCraft, smeltOutputFor } = require("./plan");
 const { parse, sayFromPartial, isChatOnly, parseChat } = require("./ai");
 const makeExtra = require("./extra");
 
+process.env.ASK_OWNER = process.env.ASK_OWNER || "1"; // the ask-the-owner flow tests need this mode (default is: gather everything itself)
 let fails = 0;
 const ok = (name, cond, info) => { console.log((cond ? "PASS " : "FAIL ") + name + (info ? "  " + info : "")); if (!cond) fails++; };
 
@@ -39,6 +40,8 @@ ok("parser aliases", p.actions.map((a) => a.action).join() === "smelt,farm,hunt,
   ok("fast path: not addressed -> small prompt (no actions possible)", isChatOnly(J("ahmet: hadi madene gidelim", { addressed: false })));
   ok("fast path: follow-up answer to the bot's question -> big prompt", !isChatOnly(J("sen seç ceyobot hadi başla", { followUp: true })));
   ok("fast path: 'hadi başla' alone -> big prompt", !isChatOnly(J("ceyobot hadi başla")));
+  { const cut = parse('{"say":"Tamam","actions":[{"action":"craft","item":"wooden_pickaxe"},{"action":"mine","item":"stone","count":10},{"action":"portal"},{"action":"craft","item":"sto');
+    ok("cut-off JSON keeps the finished actions", cut.actions.length === 3 && cut.actions[2].action === "portal" && cut.say === "Tamam", JSON.stringify(cut)); }
   ok("fast path: waiting for the owner -> big prompt", !isChatOnly(J("ceyobot naber", { status: "sahipten bekliyorsun: elmas" })));
   ok("fast path: join greeting waves", parseChat("Hoş geldin!", { system: true }).actions[0].action === "wave");
   ok("fast path: '-' means silence, quotes/name stripped", parseChat("-", {}).say === "" && parseChat('ceyobot: "Selam!"', {}).say === "Selam!");
@@ -363,6 +366,16 @@ const mkX = (world, said) => makeExtra({
     ok("equipBest", equipped.join() === "diamond_helmet@head,shield@off-hand" && n === 2, equipped.join());
     ok("bestWeapon", X.bestWeapon(bot).name === "diamond_sword");
   }
-  console.log(fails ? `\n${fails} FAILED` : "\nall passed");
+  {
+  process.env.MC_PASSWORD = process.env.MC_PASSWORD || "unit-test";
+  const B = require("./bot");
+  const mk = (name, solid) => ({ name, boundingBox: solid ? "block" : "empty" });
+  const bot = { entity: { position: new Vec3(0.5, 64, 0.5), yaw: Math.PI }, blockAt: (p) => (p.y < 64 ? mk("stone", true) : mk("air", false)) };
+  const site = B._test.findPortalSite(bot);
+  ok("portal: finds a flat 4x5 site in front of the bot", !!site && site.n.z === 1 && site.a.x === 1, JSON.stringify(site));
+  bot.blockAt = (p) => mk("stone", true); // solid everywhere -> nowhere to build
+  ok("portal: no site inside solid rock", B._test.findPortalSite(bot) === null);
+}
+console.log(fails ? `\n${fails} FAILED` : "\nall passed");
   process.exit(fails ? 1 : 0);
 })();

@@ -42,7 +42,7 @@ let lastCmdAt = 0, noOpAt = 0; // last command time / last "no permission" reply
 // Missing materials: the bot asks the owner, parks the job (+ the rest of the queue) here and remembers why.
 let need = null; // { user, a, job, rest, items, watch, forItem, askedAt, snap, last, nudging }
 let curJob = null; // queue entry that is running right now
-const ASK_OWNER = process.env.ASK_OWNER !== "0"; // ASK_OWNER=0 -> always gather everything itself
+const ASK_OWNER = process.env.ASK_OWNER === "1"; // default: the bot gathers everything itself (ASK_OWNER=1 -> asks the owner for missing materials) // ASK_OWNER=0 -> always gather everything itself
 const ASK_ALL = process.env.ASK_ALL === "1"; // also ask for cheap basics (logs, cobblestone ...)
 const NEED_TTL = 15 * 60 * 1000;
 const cmdReplies = []; // chat lines that came back right after a command (the server's answer)
@@ -665,6 +665,102 @@ async function fightTask(bot, t) {
   if (!t.cancel) say(bot, kills ? `${kills} canavarı hallettim!` : "Yakında canavar kalmadı.");
 }
 
+
+// ---------- nether portal ----------
+// Finds a flat 4x5 spot in front of the bot. Frame cell (i, j): i = 0..3 along the frame, j = 0..4 up.
+function findPortalSite(bot) {
+  const p = bot.entity.position, yaw = bot.entity.yaw;
+  const bx = Math.floor(p.x), bz = Math.floor(p.z), by = Math.floor(p.y);
+  const fw = Math.abs(Math.sin(yaw)) > Math.abs(Math.cos(yaw)) ? [-Math.sign(Math.sin(yaw)), 0] : [0, -Math.sign(Math.cos(yaw)) || 1];
+  const side = [Math.abs(fw[1]), Math.abs(fw[0])];
+  const air = (b) => !b || REPLACEABLE.has(b.name);
+  const solid = (b) => b && b.boundingBox === "block";
+  for (let f = 4; f <= 12; f += 2) for (const lat of [0, -3, 3, -6, 6]) for (const dy of [0, -1, 1]) {
+    const o = new Vec3(bx + fw[0] * f + side[0] * lat, by + dy, bz + fw[1] * f + side[1] * lat);
+    let ok = true;
+    for (let i = 0; i < 4 && ok; i++) {
+      if (!solid(bot.blockAt(o.offset(side[0] * i, -1, side[1] * i)))) ok = false;
+      for (let j = 0; j < 5 && ok; j++) if (!air(bot.blockAt(o.offset(side[0] * i, j, side[1] * i)))) ok = false;
+    }
+    if (ok) return { o, a: new Vec3(side[0], 0, side[1]), n: new Vec3(fw[0], 0, fw[1]) };
+  }
+  return null;
+}
+
+const inNether = (bot) => /nether/.test(String(bot.game.dimension || ""));
+
+async function portalTask(bot, t) {
+  if (inNether(bot)) { say(bot, "Zaten Nether'dayım."); return; }
+  const have = (n) => invCounts(bot)[n] || 0;
+  // 1) obsidian (10 for the frame)
+  if (have("obsidian") < 10) {
+    say(bot, "Portal için obsidiyen topluyorum.");
+    await mineTask(bot, t, "obsidian", 10 - have("obsidian"), true).catch(() => 0);
+    if (t.cancel) return;
+  }
+  if (have("obsidian") < 10) {
+    if (t.owner && Date.now() - noOpAt > 60000) {
+      say(bot, "Doğada obsidiyen bulamadım, komutla alıyorum.");
+      await runCommand(bot, `give ${USERNAME} minecraft:obsidian ${10 - have("obsidian")}`);
+      await sleep(1200);
+    }
+    if (have("obsidian") < 10) { say(bot, "Portal için 10 obsidiyen lazım, bulamadım."); return; }
+  }
+  // 2) 3 cobblestone helpers + flint and steel
+  if (have("cobblestone") < 3) await mineTask(bot, t, "stone", 3 - have("cobblestone"), true).catch(() => 0);
+  if (t.cancel) return;
+  if (!have("flint_and_steel")) {
+    say(bot, "Çakmak yapıyorum.");
+    if (!(await craftItem(bot, t, "flint_and_steel", 1, true)) || t.cancel) return;
+  }
+  // 3) build the frame
+  const site = findPortalSite(bot);
+  if (!site) { say(bot, "Portal kuracak düz bir yer bulamadım, başka yere gidince tekrar söyle."); return; }
+  const P = (i, j) => site.o.plus(site.a.scaled(i)).offset(0, j, 0);
+  const plan = [
+    [0, 0, "cobblestone"], [1, 0, "obsidian"], [2, 0, "obsidian"], [3, 0, "cobblestone"],
+    [0, 1, "obsidian"], [0, 2, "obsidian"], [0, 3, "obsidian"], [3, 1, "obsidian"], [3, 2, "obsidian"], [3, 3, "obsidian"],
+    [0, 4, "cobblestone"], [1, 4, "obsidian"], [2, 4, "obsidian"],
+  ];
+  let k = 0;
+  for (const [i, j, item] of plan) {
+    if (t.cancel) return;
+    t.text = `portal kuruyorum (${++k}/${plan.length})`;
+    let r = await placeAt(bot, P(i, j), item, false).catch(() => "fail");
+    if (r === "fail") { await sleep(300); r = await placeAt(bot, P(i, j), item, false).catch(() => "fail"); }
+    if (r === "noitem") { say(bot, `Bende ${item} bitti.`); return; }
+    if (r === "noref" || r === "fail") { say(bot, "Portalı kuramadım."); return; }
+    await sleep(150);
+  }
+  // 4) light it
+  const lightFrom = P(1, 1).minus(site.n.scaled(2));
+  for (const i of [1, 2, 1]) {
+    if (t.cancel) return;
+    t.text = "portalı yakıyorum";
+    const fs = findInvItem(bot, "flint_and_steel");
+    if (!fs) { say(bot, "Çakmağım kayboldu."); return; }
+    await bot.equip(fs, "hand").catch(() => {});
+    await gotoNear(bot, lightFrom, 1, 8000).catch(() => {});
+    const base = bot.blockAt(P(i, 0));
+    if (base) {
+      await bot.lookAt(base.position.offset(0.5, 1, 0.5)).catch(() => {});
+      try { await bot.activateBlock(base, new Vec3(0, 1, 0)); } catch (e) { log("light error:", e.message); }
+    }
+    await sleep(1500);
+    const inner = bot.blockAt(P(1, 1));
+    if (inner && inner.name === "nether_portal") break;
+  }
+  const lit = bot.blockAt(P(1, 1));
+  if (!lit || lit.name !== "nether_portal") { say(bot, "Portal yanmadı, çakmakla uğraştım ama olmadı."); return; }
+  say(bot, "Portal yandı, giriyorum!");
+  // 5) walk in and wait for the dimension change
+  const inside = P(1, 1);
+  await gotoGoal(bot, new goals.GoalBlock(inside.x, inside.y, inside.z), 10000).catch(() => {});
+  for (let w = 0; w < 25 && !t.cancel && !inNether(bot); w++) await sleep(1000);
+  if (inNether(bot)) say(bot, "Nether'dayım!");
+  else say(bot, "Portalın içindeyim ama geçiş olmadı, biraz bekleyip tekrar dene.");
+}
+
 // ---------- extra abilities (extra.js) ----------
 const X = makeExtra({
   say, log, sleep, gotoNear, digBlock, placeAt, norm, isProtected,
@@ -710,6 +806,7 @@ async function execute(bot, a, job) {
       else await runTask(bot, "goto", "yürüyorum", (t) => gotoTask(bot, t, a.x, a.y, a.z), job.owner);
       break;
     case "craft": await runTask(bot, "craft", `${a.item} üretiyorum`, (t) => craftTask(bot, t, a.item, n), job.owner); break;
+    case "portal": await runTask(bot, "portal", "nether portalı kuruyorum", (t) => portalTask(bot, t), job.owner); break;
     case "sleep": await runTask(bot, "sleep", "uyuyorum", (t) => sleepTask(bot, t), job.owner); break;
     case "smelt": await runTask(bot, "craft", `${a.item} eritiyorum`, (t) => craftTask(bot, t, a.item, n, true), job.owner); break;
     case "armor": await runTask(bot, "armor", "zırh giyiyorum", (t) => X.armorTask(bot, t), job.owner); break;
@@ -1089,7 +1186,7 @@ async function runSession() {
   log("Session finished");
 }
 
-module.exports = { craftItem, mineTask, invCounts, _test: { incoming, setCurrent: (b) => { current = b; }, cmdReplies, scanBlocks, wanderFor, findInvItem, blockMatcher, queue, setCur: (q) => { curJob = q; }, getNeed: () => need, clearNeed: () => { need = null; }, canAsk, resumeNeed, needLine } };
+module.exports = { craftItem, mineTask, invCounts, _test: { findPortalSite, incoming, setCurrent: (b) => { current = b; }, cmdReplies, scanBlocks, wanderFor, findInvItem, blockMatcher, queue, setCur: (q) => { curJob = q; }, getNeed: () => need, clearNeed: () => { need = null; }, canAsk, resumeNeed, needLine } };
 
 if (require.main === module) (async () => {
   const w = Date.now();

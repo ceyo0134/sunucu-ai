@@ -3,10 +3,10 @@ const BASE = process.env.LLM_URL || "http://127.0.0.1:8080";
 const BOT = process.env.MC_USERNAME || "ceyobot";
 
 const ACTIONS = ["none", "look", "jump", "wave", "come", "follow", "stop", "skip", "mine", "break", "place", "build", "give", "heal", "cmd", "goto", "guard", "fight", "craft", "sleep",
-  "smelt", "armor", "store", "take", "farm", "fish", "hunt", "tunnel", "digdown", "trade", "enchant", "ride", "dismount", "pickup", "retry", "selfgather"];
+  "smelt", "armor", "store", "take", "farm", "fish", "hunt", "tunnel", "digdown", "trade", "enchant", "ride", "dismount", "pickup", "retry", "selfgather", "portal"];
 // words the model may use instead of the exact action name
 const ALIAS = { cook: "smelt", furnace: "smelt", equip: "armor", wear: "armor", chest: "store", put: "store", withdraw: "take", harvest: "farm", plant: "farm",
-  fishing: "fish", kill: "hunt", attack: "hunt", dig: "tunnel", tunnel_mine: "tunnel", descend: "digdown", barter: "trade", collect: "pickup", dismount_ride: "dismount" };
+  fishing: "fish", kill: "hunt", attack: "hunt", dig: "tunnel", tunnel_mine: "tunnel", descend: "digdown", barter: "trade", collect: "pickup", dismount_ride: "dismount", nether: "portal", enter_nether: "portal", nether_portal: "portal" };
 const SHAPES = ["tower", "wall", "platform", "house"];
 const BIG_COUNT = new Set(["mine", "break", "craft", "smelt", "hunt", "tunnel", "fish", "take"]); // these may ask for hundreds
 const MAX_ACTIONS = 40; // per message; more can be given in later messages (the queue holds 1000)
@@ -32,6 +32,7 @@ Kurallar:
   tunnel (baktığın yöne tünel aç: "count" uzunluk), digdown (merdiven gibi aşağı kaz: "y" hedef yükseklik, yoksa 12 blok), trade (en yakın köylüyle takas: "item" almak istediğin şey, yoksa takasları söyler),
   enchant (yakındaki büyü masasında "item" eşyayı büyüle), ride (yakındaki tekne/at/domuz/vagona bin), dismount (in), pickup (yerdeki eşyaları topla),
   retry (bekleyen malzeme isteğinde sahip eşyayı verdiyse yerden toplayıp işe devam et), selfgather (sahip "kendin topla / bende yok" dediyse bekleyen işi malzemeleri kendin toplayarak yap),
+  portal (Nether portalı: gerekirse obsidiyen toplar, çakmak yapar, 4x5 portalı kurar, yakar ve içine girer),
   stop (HER ŞEYİ bırak: o an yapılan işi de bekleyen tüm kuyruğu da iptal eder), skip (sadece o an yapılan işi bırak, kuyruğa devam et).
 - Yeni işler kuyruğun SONUNA eklenir. Oyuncu "hemen / şimdi / acil" derse ya da önceki işlerden vazgeçerse listenin başına {"action":"stop"} koy, sonra yeni işleri yaz.
 - "dur", "bırak", "iptal", "yeter", "vazgeç" gibi şeylerde sen karar ver: hepsini bırakacaksa stop, sadece şu anki işi bırakacaksa skip.
@@ -43,6 +44,7 @@ Kurallar:
 - Blok isimlerini İngilizce Minecraft kimliğiyle yaz: odun=oak_log (herhangi bir ağaç olur), beyaz odun/huş=birch_log, ladin=spruce_log, akasya=acacia_log, koyu meşe=dark_oak_log, orman ağacı=jungle_log, taş=stone, kömür=coal_ore, demir=iron_ore, elmas=diamond_ore, kum=sand, toprak=dirt, tahta=oak_planks, kırıktaş=cobblestone, cam=glass, kazma=wooden_pickaxe, taş kazma=stone_pickaxe, kılıç=wooden_sword, balta=wooden_axe, kürek=wooden_shovel, tezgah=crafting_table, sandık=chest, fırın=furnace, meşale=torch, demir külçe=iron_ingot, altın külçe=gold_ingot, demir miğfer=iron_helmet, demir zırh=iron_chestplate, demir pantolon=iron_leggings, demir bot=iron_boots, elmas kılıç=diamond_sword, olta=fishing_rod, kalkan=shield, yay=bow, kova=bucket, yatak=white_bed, ekmek=bread, biftek=cooked_beef, havuç=carrot, patates=potato, buğday=wheat, lapis=lapis_lazuli, kırmızıtaş=redstone_ore.
 - "target" oyuncunun adıdır, yazmazsan mesajı yazan oyuncu seçilir.
 - TEMEL İŞLER HEPSİ YAPILIR: odun/taş/kömür/demir/elmas toplamak (mine), alet-silah-zırh-tezgah-fırın-sandık-meşale-yatak-kova yapmak (craft: malzemeyi, tezgahı, kömürü, demiri KENDİ toplar, eritir, üretir), demir/altın/bakır ısıtmak-eritmek, yemek pişirmek, cam yapmak (smelt), avlanmak, ekin, balık, tünel, ev. "ısıt", "erit", "pişir", "külçe yap" = smelt. Bir şey "yap/hazırla/üret/çıkar" denirse craft; "bul/topla/kaz" denirse mine. Zor görünse bile REDDETME, uygun hareketleri sırayla yaz. İstenen şey tek hareketle olmuyorsa küçük adımlara böl (örn. "demir kılıç yap" = craft iron_sword, bot kendisi demiri bulup eritir).
+- UZUN ZİNCİR İSTEKLERİ: oyuncu birçok işi art arda söylerse (\"önce..., sonra..., ondan sonra...\") HER adımı ayrı bir hareket olarak sırayla yaz. Hiçbirini atlama, hepsini tek hareketle geçiştirme (en çok 40 hareket). Alet gerektiren madenden önce o aleti yaptığını (craft) sıraya koy. Bot malzemeyi kendisi toplar; oyuncudan isteme.
 - SORU SORMA, KENDİN KARAR VER: malzeme, boyut, yer gibi şeyleri oyuncuya sorma. Söylenmediyse sen seç (ev/duvar/kule için envanterde ne varsa: cobblestone, oak_planks, stone; yoksa cobblestone) ve HEMEN actions yaz. "sen seç", "fark etmez", "hadi başla", "devam" gibi cevaplarda önceki isteği ("Son sohbet"e bak) actions ile yap. Asla sadece "yapıyorum" deyip actions'ı boş bırakma.
 - SAHİP için Minecraft'ın HER ŞEYİ "cmd" ile yapılır (bot op ise). Komutu / olmadan yaz; "~" botun konumudur, oyuncunun yanında yapmak için "execute at <oyuncu> run ..." kullan. Birden çok komutu actions'a art arda yaz. Örnekler: eşya "give <oyuncu> minecraft:diamond 64", "enchant <oyuncu> sharpness 5", "effect give <oyuncu> minecraft:speed 600 2", "gamemode creative <oyuncu>", "tp <kim> <nereye>", "time set day|night", "weather clear|rain", "difficulty peaceful", "summon minecraft:zombie ~ ~ ~", "kill @e[type=minecraft:zombie,distance=..30]", "setblock ~ ~ ~ minecraft:stone", "fill x1 y1 z1 x2 y2 z2 minecraft:glass [hollow|replace|outline]", "clone ...", "xp add <oyuncu> 30 levels", "gamerule keepInventory true", "setworldspawn", "spawnpoint <oyuncu>", "title <oyuncu> title {\"text\":\"Selam\"}", "particle ...", "playsound ...". Büyük yapıları (kutu, havuz, duvar, köprü) sahip isterse fill ile tek komutta yap; sahip değilse build/place kullan.
 
@@ -68,6 +70,8 @@ Mesaj: "${BOT} eşyaları sandığa koy" -> {"say":"Koyuyorum!","actions":[{"act
 Mesaj: "${BOT} sandıktan 20 odun al" -> {"say":"Alıyorum!","actions":[{"action":"take","item":"oak_log","count":20}]}
 Mesaj: "${BOT} 20 blok tünel aç" -> {"say":"Kazıyorum!","actions":[{"action":"tunnel","count":20}]}
 Mesaj: "${BOT} gündüz yap" (sahip) -> {"say":"Gündüz oluyor!","actions":[{"action":"cmd","command":"time set day"}]}
+Mesaj: "${BOT} tahta kazma yap, taş kaz, taş kazma yap, onunla demir bul, kendine demir set ve kazma yap, elmas bul, elmas kazmayla obsidiyen kır, çakmakla nethera gir" -> {"say":"Hepsini sırayla yapıyorum!","actions":[{"action":"craft","item":"wooden_pickaxe"},{"action":"mine","item":"stone","count":20},{"action":"craft","item":"stone_pickaxe"},{"action":"mine","item":"iron_ore","count":12},{"action":"craft","item":"iron_pickaxe"},{"action":"craft","item":"iron_helmet"},{"action":"craft","item":"iron_chestplate"},{"action":"craft","item":"iron_leggings"},{"action":"craft","item":"iron_boots"},{"action":"armor"},{"action":"mine","item":"diamond_ore","count":3},{"action":"craft","item":"diamond_pickaxe"},{"action":"mine","item":"obsidian","count":10},{"action":"craft","item":"flint_and_steel"},{"action":"portal"}]}
+Mesaj: "${BOT} nethera gir" -> {"say":"Portalı kurup giriyorum!","actions":[{"action":"portal"}]}
 Mesaj: "${BOT} demir ısıt" -> {"say":"Demiri bulup eritiyorum!","actions":[{"action":"smelt","item":"iron_ingot","count":8}]}
 Mesaj: "${BOT} ham demirleri külçe yap" -> {"say":"Eritiyorum!","actions":[{"action":"smelt","item":"iron_ingot","count":16}]}
 Mesaj: "${BOT} yemek pişir" -> {"say":"Pişiriyorum!","actions":[{"action":"smelt","item":"cooked_beef","count":8}]}
@@ -102,7 +106,7 @@ const TASK_RE = new RegExp("(" + [
   "zıpla", "salla", "\\bbak", "yürü", "koş", "\\bbin", "sandık", "giy", "eşya", "envanter", "kendin", "bende", "kazma", "kılıç", "zırh", "kule", "duvar", "\\bev\\b", "odun", "taş",
   "elmas", "demir", "kömür", "komut", "gündüz", "gece", "iyileş", "skin", "oyun", "zaman", "yağmur", "\\bek\\b", "pişir", "erit", "taşı", "götür", "yanıma", "yanına", "buraya", "şuraya",
   "heal", "give", "come", "follow", "stop", "tamam", "evet", "hayır", "kazan", "yık", "patlat", "sür", "oku", "yaz",
-  "ısıt", "isit", "hazırla", "hazirla", "üret", "uret", "çıkar", "cikar", "yemek", "külçe", "kulce", "çubuk", "sopa", "tezgah", "fırın", "alet", "silah", "ağaç", "agac", "başla", "basla", "seç", "\\bsec\\b", "devam", "tamamla", "hadi", "olur", "peki", "çağır", "cagir", "öldür", "ışın", "büyü", "doldur", "temizle", "sil", "kutu", "havuz", "köprü", "merdiven", "kapı",
+  "nether", "portal", "obsidiyen", "obsidyen", "çakmak", "cakmak", "\\bgir\\b", "ısıt", "isit", "hazırla", "hazirla", "üret", "uret", "çıkar", "cikar", "yemek", "külçe", "kulce", "çubuk", "sopa", "tezgah", "fırın", "alet", "silah", "ağaç", "agac", "başla", "basla", "seç", "\\bsec\\b", "devam", "tamamla", "hadi", "olur", "peki", "çağır", "cagir", "öldür", "ışın", "büyü", "doldur", "temizle", "sil", "kutu", "havuz", "köprü", "merdiven", "kapı",
 ].join("|") + ")", "i");
 
 function isChatOnly(job) {
@@ -147,11 +151,35 @@ function normalize(j) {
   return { say: str(j.say), actions: list };
 }
 
+// A long chain can be cut off in the middle of the JSON: keep every action object that was finished instead of throwing all of them away.
+function salvageActions(text) {
+  const s = String(text || "");
+  const i = s.indexOf('"actions"');
+  const start = i < 0 ? -1 : s.indexOf("[", i);
+  if (start < 0) return null;
+  const out = [];
+  let depth = 0, from = -1, inStr = false, esc = false;
+  for (let k = start + 1; k < s.length; k++) {
+    const c = s[k];
+    if (inStr) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') { inStr = true; continue; }
+    if (c === "{") { if (depth === 0) from = k; depth++; }
+    else if (c === "}") { depth--; if (depth === 0 && from >= 0) { try { out.push(JSON.parse(s.slice(from, k + 1))); } catch (_) {} from = -1; } }
+    else if (c === "]" && depth === 0) break;
+  }
+  let say = "";
+  const m = s.match(/"say"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (m) { try { say = JSON.parse('"' + m[1] + '"'); } catch (_) { say = m[1]; } }
+  return { say, actions: out };
+}
+
 function parse(text) {
   const m = String(text || "").match(/\{[\s\S]*\}/);
   if (m) {
     try { return normalize(JSON.parse(m[0])); } catch (_) {}
   }
+  const sv = salvageActions(text);
+  if (sv && sv.actions.length) return normalize(sv);
   return normalize({ say: String(text || "").trim().slice(0, 200) });
 }
 
@@ -233,7 +261,7 @@ async function ask(history, job, onSay) {
     // two llama.cpp slots: slot 0 keeps the big prompt cached, slot 1 the small chat prompt, so they never throw each other out
     const body = fast
       ? { messages: [{ role: "system", content: SYSTEM_CHAT }, { role: "user", content: buildChatUser(history, job) }], temperature: 0.8, top_p: 0.95, top_k: 64, max_tokens: 70, stream: true, cache_prompt: true, id_slot: 1, chat_template_kwargs: { enable_thinking: false } }
-      : { messages: [{ role: "system", content: SYSTEM }, { role: "user", content: buildUser(history, job) }], temperature: 0.4, top_p: 0.95, top_k: 64, max_tokens: 450, response_format: { type: "json_object" }, stream: true, cache_prompt: true, id_slot: 0, chat_template_kwargs: { enable_thinking: false } };
+      : { messages: [{ role: "system", content: SYSTEM }, { role: "user", content: buildUser(history, job) }], temperature: 0.4, top_p: 0.95, top_k: 64, max_tokens: 1200, response_format: { type: "json_object" }, stream: true, cache_prompt: true, id_slot: 0, chat_template_kwargs: { enable_thinking: false } };
     const res = await fetch(BASE + "/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -278,4 +306,4 @@ async function warmup() {
   await one(SYSTEM, buildUser(["ceyo0134: merhaba"], job), 0); // big: about 2 minutes
 }
 
-module.exports = { ask, warmup, getStats, isChatOnly, parseChat, parse, sayFromPartial, ACTIONS, SHAPES };
+module.exports = { ask, warmup, getStats, isChatOnly, parseChat, parse, salvageActions, sayFromPartial, ACTIONS, SHAPES };
