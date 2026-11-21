@@ -37,6 +37,8 @@ ok("parser aliases", p.actions.map((a) => a.action).join() === "smelt,farm,hunt,
   ok("fast path: small talk uses the small prompt", chatMsgs.every((m) => isChatOnly(J(m))), chatMsgs.filter((m) => !isChatOnly(J(m))).join(" | "));
   ok("fast path: anything that asks for work uses the big prompt", taskMsgs.every((m) => !isChatOnly(J(m))), taskMsgs.filter((m) => isChatOnly(J(m))).join(" | "));
   ok("fast path: not addressed -> small prompt (no actions possible)", isChatOnly(J("ahmet: hadi madene gidelim", { addressed: false })));
+  ok("fast path: follow-up answer to the bot's question -> big prompt", !isChatOnly(J("sen seç ceyobot hadi başla", { followUp: true })));
+  ok("fast path: 'hadi başla' alone -> big prompt", !isChatOnly(J("ceyobot hadi başla")));
   ok("fast path: waiting for the owner -> big prompt", !isChatOnly(J("ceyobot naber", { status: "sahipten bekliyorsun: elmas" })));
   ok("fast path: join greeting waves", parseChat("Hoş geldin!", { system: true }).actions[0].action === "wave");
   ok("fast path: '-' means silence, quotes/name stripped", parseChat("-", {}).say === "" && parseChat('ceyobot: "Selam!"', {}).say === "Selam!");

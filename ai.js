@@ -42,6 +42,8 @@ Kurallar:
 - mine: maden yakında yoksa bot kendisi tünel açıp arar. craft: demir/elmas alet ve zırh dahil her şeyi yapar (külçeyi kendisi bulup eritir). Av, yakıt, tezgah, fırın hep otomatik.
 - Blok isimlerini İngilizce Minecraft kimliğiyle yaz: odun=oak_log (herhangi bir ağaç olur), beyaz odun/huş=birch_log, ladin=spruce_log, akasya=acacia_log, koyu meşe=dark_oak_log, orman ağacı=jungle_log, taş=stone, kömür=coal_ore, demir=iron_ore, elmas=diamond_ore, kum=sand, toprak=dirt, tahta=oak_planks, kırıktaş=cobblestone, cam=glass, kazma=wooden_pickaxe, taş kazma=stone_pickaxe, kılıç=wooden_sword, balta=wooden_axe, kürek=wooden_shovel, tezgah=crafting_table, sandık=chest, fırın=furnace, meşale=torch, demir külçe=iron_ingot, altın külçe=gold_ingot, demir miğfer=iron_helmet, demir zırh=iron_chestplate, demir pantolon=iron_leggings, demir bot=iron_boots, elmas kılıç=diamond_sword, olta=fishing_rod, kalkan=shield, yay=bow, kova=bucket, yatak=white_bed, ekmek=bread, biftek=cooked_beef, havuç=carrot, patates=potato, buğday=wheat, lapis=lapis_lazuli, kırmızıtaş=redstone_ore.
 - "target" oyuncunun adıdır, yazmazsan mesajı yazan oyuncu seçilir.
+- SORU SORMA, KENDİN KARAR VER: malzeme, boyut, yer gibi şeyleri oyuncuya sorma. Söylenmediyse sen seç (ev/duvar/kule için envanterde ne varsa: cobblestone, oak_planks, stone; yoksa cobblestone) ve HEMEN actions yaz. "sen seç", "fark etmez", "hadi başla", "devam" gibi cevaplarda önceki isteği ("Son sohbet"e bak) actions ile yap. Asla sadece "yapıyorum" deyip actions'ı boş bırakma.
+- SAHİP için Minecraft'ın HER ŞEYİ "cmd" ile yapılır (bot op ise). Komutu / olmadan yaz; "~" botun konumudur, oyuncunun yanında yapmak için "execute at <oyuncu> run ..." kullan. Birden çok komutu actions'a art arda yaz. Örnekler: eşya "give <oyuncu> minecraft:diamond 64", "enchant <oyuncu> sharpness 5", "effect give <oyuncu> minecraft:speed 600 2", "gamemode creative <oyuncu>", "tp <kim> <nereye>", "time set day|night", "weather clear|rain", "difficulty peaceful", "summon minecraft:zombie ~ ~ ~", "kill @e[type=minecraft:zombie,distance=..30]", "setblock ~ ~ ~ minecraft:stone", "fill x1 y1 z1 x2 y2 z2 minecraft:glass [hollow|replace|outline]", "clone ...", "xp add <oyuncu> 30 levels", "gamerule keepInventory true", "setworldspawn", "spawnpoint <oyuncu>", "title <oyuncu> title {\"text\":\"Selam\"}", "particle ...", "playsound ...". Büyük yapıları (kutu, havuz, duvar, köprü) sahip isterse fill ile tek komutta yap; sahip değilse build/place kullan.
 
 Örnekler:
 Mesaj: "${BOT} naber" -> {"say":"İyiyim, sen nasılsın?","actions":[]}
@@ -65,6 +67,10 @@ Mesaj: "${BOT} eşyaları sandığa koy" -> {"say":"Koyuyorum!","actions":[{"act
 Mesaj: "${BOT} sandıktan 20 odun al" -> {"say":"Alıyorum!","actions":[{"action":"take","item":"oak_log","count":20}]}
 Mesaj: "${BOT} 20 blok tünel aç" -> {"say":"Kazıyorum!","actions":[{"action":"tunnel","count":20}]}
 Mesaj: "${BOT} gündüz yap" (sahip) -> {"say":"Gündüz oluyor!","actions":[{"action":"cmd","command":"time set day"}]}
+Mesaj: "${BOT} bana bi ev yap" -> {"say":"Taştan bir ev kuruyorum!","actions":[{"action":"build","shape":"house","item":"cobblestone","count":6}]}
+Mesaj: "sen seç hadi başla" (son sohbette ev istenmişti, sen malzeme sormuştun) -> {"say":"Taştan yapıyorum!","actions":[{"action":"build","shape":"house","item":"cobblestone","count":6}]}
+Mesaj: "${BOT} bana 64 elmas ver" (sahip, yazan: ceyo0134) -> {"say":"Buyur!","actions":[{"action":"cmd","command":"give ceyo0134 minecraft:diamond 64"}]}
+Mesaj: "${BOT} yanıma cam bir kutu yap" (sahip, yazan: ceyo0134) -> {"say":"Yapıyorum!","actions":[{"action":"cmd","command":"execute at ceyo0134 run fill ~-3 ~ ~-3 ~3 ~4 ~3 minecraft:glass hollow"}]}
 Mesaj: "${BOT} bana ışınlan" (sahip, yazan: ceyo0134) -> {"say":"Işınlanıyorum!","actions":[{"action":"cmd","command":"tp ${BOT} ceyo0134"}]}
 Mesaj: "${BOT} dur" (çok işin var) -> {"say":"Tamam, hepsini bıraktım.","actions":[{"action":"stop"}]}
 Mesaj: "${BOT} şunu bırak sıradakine geç" -> {"say":"Tamam, geçiyorum.","actions":[{"action":"skip"}]}
@@ -90,12 +96,14 @@ const TASK_RE = new RegExp("(" + [
   "zıpla", "salla", "\\bbak", "yürü", "koş", "\\bbin", "sandık", "giy", "eşya", "envanter", "kendin", "bende", "kazma", "kılıç", "zırh", "kule", "duvar", "\\bev\\b", "odun", "taş",
   "elmas", "demir", "kömür", "komut", "gündüz", "gece", "iyileş", "skin", "oyun", "zaman", "yağmur", "\\bek\\b", "pişir", "erit", "taşı", "götür", "yanıma", "yanına", "buraya", "şuraya",
   "heal", "give", "come", "follow", "stop", "tamam", "evet", "hayır", "kazan", "yık", "patlat", "sür", "oku", "yaz",
+  "başla", "basla", "seç", "\\bsec\\b", "devam", "tamamla", "hadi", "olur", "peki", "çağır", "cagir", "öldür", "ışın", "büyü", "doldur", "temizle", "sil", "kutu", "havuz", "köprü", "merdiven", "kapı",
 ].join("|") + ")", "i");
 
 function isChatOnly(job) {
   if (job.system) return true; // someone just joined: greeting
   if (/bekliyorsun/.test(String(job.status || ""))) return false; // waiting for materials from the owner: the big prompt knows retry/selfgather
   if (!job.addressed) return true; // not meant for the bot: it may only chat (the big prompt says: no actions)
+  if (job.followUp) return false; // the bot just asked a question (\"hangi malzeme?\"): the answer (\"sen seç\") must be able to start the job
   const msg = String(job.msg || "");
   if (msg.length > 70 || /[\d\/]/.test(msg)) return false;
   return !TASK_RE.test(msg.toLocaleLowerCase("tr"));

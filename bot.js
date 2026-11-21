@@ -786,6 +786,7 @@ async function think() {
   if (busy || !pending) return;
   busy = true;
   const job = pending; pending = null; lastThink = Date.now();
+  job.followUp = history.slice(-4).some((l) => l.startsWith(USERNAME + ":") && /\?\s*$/.test(l)); // did the bot just ask something?
   try {
     const bot = current;
     if (!bot) return;
