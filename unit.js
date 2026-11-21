@@ -156,7 +156,7 @@ const scanDone = (async () => {
   ok("give: exact name wins, no wrong fallback", T.findInvItem(inv(["oak_log", 1], ["birch_log", 9]), "oak_log").name === "oak_log" && T.findInvItem(inv(["birch_log", 5]), "diamond") === null && T.findInvItem(inv(["birch_planks", 4]), "oak_planks").name === "birch_planks");
 })();
 
-// ---- commands: the real server answer is reported, only the owner gives orders ----
+// ---- commands: the real server answer is reported; everybody gives jobs, only the owner sends / commands ----
 const { summarizeReply } = require("./cmd");
 const cmdDone = (async () => {
   const noPerm = summarizeReply(["I'm sorry, but you do not have permission to perform this command. Please contact the server administrators if you believe that this is a mistake."]);
@@ -191,17 +191,26 @@ const cmdDone = (async () => {
   await new Promise((r) => setTimeout(r, 2000));
   ok("cmd: success shows the server answer", chat.some((c) => c === "Sunucu: Set the time to 1000"), chat.join(" | "));
 
-  // other players: refused once, no commands, no orders
+  // other players: they may give jobs, but never "/" commands
   chat.length = 0;
   T.incoming("ahmet", "ceyobot /gamemode creative");
-  ok("owner only: strangers cannot send commands", chat.length === 1 && chat[0].includes("sahibim"), chat.join(" | "));
+  ok("commands: strangers cannot send / commands", chat.length === 1 && chat[0] === "Komutları sadece sahibim verebilir.", chat.join(" | "));
+
+  const reply = (json) => { global.fetch = async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(json) } }] }) }); };
+  const bot2 = { chat: (m) => chat.push(m), players: {}, health: 20, food: 20, game: { gameMode: "survival" }, experience: { level: 0 },
+    entity: { position: new (require("vec3").Vec3)(0, 64, 0) }, inventory: { items: () => [] }, swingArm: () => {}, pathfinder: { setGoal: () => {} } };
+  T.setCurrent(bot2);
   chat.length = 0;
-  T.incoming("ahmet", "ceyobot bana 10 odun topla");
-  T.incoming("ahmet", "ceyobot ev yap");
-  ok("owner only: strangers get one short answer", chat.length === 1 && chat[0] === "Sadece sahibimden komut alıyorum (ceyo0134).", chat.join(" | "));
+  reply({ say: "Tamam!", actions: [{ action: "come" }] });
+  T.incoming("ahmet", "ceyobot buraya gel");
+  await new Promise((r) => setTimeout(r, 700));
+  ok("jobs: strangers can give jobs", chat.includes("Tamam!") && chat.some((c) => c.startsWith("Seni göremiyorum")), chat.join(" | "));
   chat.length = 0;
-  T.incoming("ahmet", "naber millet");
-  ok("owner only: unaddressed chat of strangers is ignored", chat.length === 0);
+  reply({ say: "Gündüz oluyor!", actions: [{ action: "cmd", command: "time set day" }] });
+  T.incoming("ayse", "ceyobot gündüz yap");
+  await new Promise((r) => setTimeout(r, 700));
+  ok("commands: a stranger's request cannot make the AI run a command", !chat.some((c) => c.startsWith("/")) && chat.includes("Komutları sadece sahibim verebilir."), chat.join(" | "));
+  delete global.fetch;
   T.setCurrent(null);
 })();
 

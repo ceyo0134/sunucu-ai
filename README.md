@@ -79,7 +79,7 @@ Protected blocks (chests, furnaces, beds, signs, spawners ...) are never mined o
 - **Wider scan:** looks within 32, then 64, then 128 blocks (as far as the server has loaded chunks) and keeps 64 candidates, so unreachable spots (treetops, leaves) never end the search early.
 - **Looks around on the surface:** for trees, sand, dirt, stone... when nothing is in sight it walks up to 6 hops of 48 blocks (turning when blocked) to load new chunks and scans again. Ores keep the tunnel search.
 
-## Owner only + honest commands (new)
+## Jobs from everyone, commands only from the owner + honest commands (new)
 
-- **Only the owner (`ceyo0134`, `MC_OWNERS`) gives orders.** Everybody else gets one short "only my owner" reply (at most every 30 s per player) and never reaches the model, so strangers cannot block or confuse the owner's requests. `OWNER_ONLY=0` brings the old behavior back.
-- **The bot now reports what the server really answered.** `ceyobot /tp ceyo0134` used to say "command sent" even when the server refused it. Now it waits for the reply and tells you: `Komut çalışmadı, sunucu: "...you do not have permission..." Muhtemelen op değilim: /op ceyobot`. On success it shows the server's answer (`Sunucu: Teleported ...`). If the server says nothing: "Komutu gönderdim, sunucu cevap vermedi."
+- **Everybody can talk to the bot and give it jobs** (collect wood, build, craft ...). **Slash commands** (`ceyobot /tp ...`, or the AI running `/time set day`) are accepted **only from the owner** (`ceyo0134`, `MC_OWNERS`). Others get "Komutları sadece sahibim verebilir." Asking the owner for missing materials still only happens on the owner's jobs.
+- **The bot reports what the server really answered.** `ceyobot /tp ceyo0134` used to say "command sent" even when the server refused it. Now it waits for the reply and tells you: `Komut çalışmadı, sunucu: "...you do not have permission..." Muhtemelen op değilim: /op ceyobot`. On success it shows the server's answer (`Sunucu: Teleported ...`). If the server says nothing: "Komutu gönderdim, sunucu cevap vermedi."

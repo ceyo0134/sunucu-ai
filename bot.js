@@ -6,7 +6,7 @@ const { pathfinder, Movements, goals } = require("mineflayer-pathfinder");
 const { Vec3 } = require("vec3");
 const makeItem = require("prismarine-item");
 const { ask, SHAPES } = require("./ai");
-const { isOwner, sanitizeCommand, summarizeReply, OWNERS } = require("./cmd");
+const { isOwner, sanitizeCommand, summarizeReply } = require("./cmd");
 const { planCraft, toolTierFor, tierRank, bestPickaxeRank, isLog, smeltOutputFor, SMELT } = require("./plan");
 const { trItem, missingFor, askText, classifyReply, gotSome } = require("./need");
 const makeExtra = require("./extra");
@@ -45,9 +45,8 @@ let curJob = null; // queue entry that is running right now
 const ASK_OWNER = process.env.ASK_OWNER !== "0"; // ASK_OWNER=0 -> always gather everything itself
 const ASK_ALL = process.env.ASK_ALL === "1"; // also ask for cheap basics (logs, cobblestone ...)
 const NEED_TTL = 15 * 60 * 1000;
-const OWNER_ONLY = process.env.OWNER_ONLY !== "0"; // only the owner gives orders (OWNER_ONLY=0 -> everybody, like before)
 const cmdReplies = []; // chat lines that came back right after a command (the server's answer)
-const refused = new Map(); // player -> last time we told them "owner only"
+
 
 // ---------- helpers ----------
 function clean(s) {
@@ -765,7 +764,6 @@ async function act(bot, r, job) {
       default:
         if (queue.length >= QUEUE_MAX) { say(bot, "Kuyruk dolu, biraz bekle."); return; }
         if (a.action === "cmd" && !job.owner) { say(bot, "Komutları sadece sahibim verebilir."); break; }
-        if (OWNER_ONLY && !job.owner) break; // e.g. the "someone joined" greeting never starts jobs
         queue.push({ a, job: { user: job.user, owner: job.owner } });
         added++;
     }
@@ -824,10 +822,6 @@ function incoming(user, msg) {
     }
   }
   const addressed = ADDR_RE.test(msg);
-  if (OWNER_ONLY && !isOwner(user)) {
-    if (addressed && current && now - (refused.get(user) || 0) > 30000) { refused.set(user, now); say(current, `Sadece sahibimden komut alıyorum (${OWNERS[0] || "owner"}).`); }
-    return;
-  }
   if (!addressed && (!UNPROMPTED || now - lastThink < 20000)) return;
   pending = { user, msg, addressed, owner: isOwner(user) };
   think();
