@@ -202,7 +202,7 @@ function runTask(bot, name, text, fn, owner) {
   task = t;
   return (async () => {
     try { await sleep(200); await fn(t); }
-    catch (e) { log("task error:", e.message); }
+    catch (e) { log("task error:", e.stack || e.message); if (owner) say(bot, `Bir hata oldu: ${String(e.message || e).slice(0, 70)}`); }
     finally {
       if (task === t) task = null;
       try { bot.pathfinder.setGoal(null); } catch (_) {}
@@ -521,7 +521,9 @@ async function getTable(bot, t) {
   return placeNearby(bot, t, "crafting_table");
 }
 
+let lastCraftErr = "";
 async function craftOnce(bot, name, times, table) {
+  lastCraftErr = "";
   const names = [name];
   if (/_planks$/.test(name)) {
     // use whatever wood we have: birch_log -> birch_planks ...
@@ -530,8 +532,20 @@ async function craftOnce(bot, name, times, table) {
   for (const nm of names) {
     const def = bot.registry.itemsByName[nm];
     if (!def) continue;
-    const recipe = bot.recipesFor(def.id, null, 1, table || null)[0];
-    if (recipe) { await bot.craft(recipe, times, table || undefined); return true; }
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const tb = table ? (bot.blockAt(table.position) || table) : null;
+      const recipe = bot.recipesFor(def.id, null, 1, tb || null)[0];
+      if (!recipe) { lastCraftErr = "malzeme eksik"; break; }
+      try {
+        if (tb && bot.entity.position.distanceTo(tb.position.offset(0.5, 0.5, 0.5)) > 3.5) await gotoNear(bot, tb.position, 2, 10000).catch(() => {});
+        await bot.craft(recipe, times, tb || undefined);
+        return true;
+      } catch (e) {
+        lastCraftErr = String(e.message || e).slice(0, 70);
+        log("craft error:", nm, e.message);
+        await sleep(800);
+      }
+    }
   }
   return false;
 }
@@ -638,12 +652,12 @@ async function craftItem(bot, t, name, count, quiet) {
           table = await getTable(bot, t);
           if (!table) { say(bot, "Tezgah koyacak yer bulamadım."); return false; }
         }
-        if (!(await craftOnce(bot, st.item, st.times, table))) { say(bot, `${st.item} üretemedim.`); return false; }
+        if (!(await craftOnce(bot, st.item, st.times, table))) { say(bot, `${st.item} üretemedim${lastCraftErr ? " (" + lastCraftErr + ")" : ""}.`); return false; }
         await sleep(300);
       }
     } catch (e) {
-      log("craft step error:", e.message);
-      say(bot, "Yaparken bir şey ters gitti.");
+      log("craft step error:", e.stack || e.message);
+      say(bot, `Yaparken bir şey ters gitti: ${String(e.message || e).slice(0, 70)}`);
       return false;
     }
   }
