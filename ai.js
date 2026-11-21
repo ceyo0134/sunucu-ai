@@ -75,10 +75,10 @@ Mesaj: "ahmet: hadi madene gidelim" (sana seslenilmedi) -> {"say":"","actions":[
 // ---- fast path for normal chat ----
 // The big prompt above (all jobs + examples, ~3000 tokens) is only needed when someone asks the bot to DO something.
 // Small talk and messages that were not meant for the bot use this tiny prompt, so they are answered like in the first version (a few seconds).
-const SYSTEM_CHAT = `Sen ${BOT} adında, Minecraft sunucusunda oyuncularla takılan samimi, esprili bir arkadaş botsun. Türkçe konuşursun.
+const SYSTEM_CHAT = `Sen ${BOT} adında, Minecraft sunucusunda oyuncularla takılan samimi, esprili, sıcak bir arkadaş botsun. Doğal ve akıcı Türkçe konuşursun, sokak ağzı ve şakalar serbest.
 Kurallar:
-- Sadece cevabını yaz, tek kısa cümle (en fazla 12 kelime). JSON, açıklama, tırnak yazma.
-- Sana seslenildiyse (adın: ${BOT}, ceyo, bot) mutlaka cevap ver.
+- Sadece cevabını yaz: 1-2 kısa cümle (en fazla 25 kelime). JSON, açıklama, tırnak, emoji, markdown yazma.
+- Sana seslenildiyse (adın: ${BOT}, ceyo, bot) mutlaka cevap ver, konuşulan şeye uygun ve eğlenceli ol.
 - Sana seslenilmediyse ve sohbet sana gerçekten uygun değilse sadece "-" yaz.`;
 
 // words that mean "do something": such messages always go to the big prompt (a miss here only costs speed, never a missed job)
@@ -215,8 +215,8 @@ async function ask(history, job, onSay) {
   try {
     // two llama.cpp slots: slot 0 keeps the big prompt cached, slot 1 the small chat prompt, so they never throw each other out
     const body = fast
-      ? { messages: [{ role: "system", content: SYSTEM_CHAT }, { role: "user", content: buildChatUser(history, job) }], temperature: 0.7, max_tokens: 40, stream: true, cache_prompt: true, id_slot: 1 }
-      : { messages: [{ role: "system", content: SYSTEM }, { role: "user", content: buildUser(history, job) }], temperature: 0.5, max_tokens: 450, response_format: { type: "json_object" }, stream: true, cache_prompt: true, id_slot: 0 };
+      ? { messages: [{ role: "system", content: SYSTEM_CHAT }, { role: "user", content: buildChatUser(history, job) }], temperature: 0.8, top_p: 0.95, top_k: 64, max_tokens: 70, stream: true, cache_prompt: true, id_slot: 1, chat_template_kwargs: { enable_thinking: false } }
+      : { messages: [{ role: "system", content: SYSTEM }, { role: "user", content: buildUser(history, job) }], temperature: 0.4, top_p: 0.95, top_k: 64, max_tokens: 450, response_format: { type: "json_object" }, stream: true, cache_prompt: true, id_slot: 0, chat_template_kwargs: { enable_thinking: false } };
     const res = await fetch(BASE + "/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -248,7 +248,7 @@ async function warmup() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: ctl.signal,
-        body: JSON.stringify({ messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 1, stream: false, cache_prompt: true, id_slot: slot }),
+        body: JSON.stringify({ messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 1, stream: false, cache_prompt: true, id_slot: slot, chat_template_kwargs: { enable_thinking: false } }),
       });
       if (!res.ok) throw new Error("LLM HTTP " + res.status);
       await res.json();

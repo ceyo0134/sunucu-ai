@@ -83,3 +83,6 @@ Protected blocks (chests, furnaces, beds, signs, spawners ...) are never mined o
 
 - **Everybody can talk to the bot and give it jobs** (collect wood, build, craft ...). **Slash commands** (`ceyobot /tp ...`, or the AI running `/time set day`) are accepted **only from the owner** (`ceyo0134`, `MC_OWNERS`). Others get "Komutları sadece sahibim verebilir." Asking the owner for missing materials still only happens on the owner's jobs.
 - **The bot reports what the server really answered.** `ceyobot /tp ceyo0134` used to say "command sent" even when the server refused it. Now it waits for the reply and tells you: `Komut çalışmadı, sunucu: "...you do not have permission..." Muhtemelen op değilim: /op ceyobot`. On success it shows the server's answer (`Sunucu: Teleported ...`). If the server says nothing: "Komutu gönderdim, sunucu cevap vermedi."
+
+## Model
+The model is chosen with the repository variables `MODEL_REPO` and `MODEL_PATTERN` (Settings > Secrets and variables > Actions > Variables). Currently: `unsloth/gemma-4-E4B-it-GGUF` with `Q4_K_M` (Gemma 4 E4B, good Turkish, about twice as fast as the old 7B). Without the variables the workflow falls back to `bartowski/Qwen2.5-7B-Instruct-GGUF`. `start_llm.sh` starts llama.cpp with `--swa-full --jinja` and retries without them if the image does not know a flag.
