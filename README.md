@@ -18,7 +18,7 @@ Default: `bartowski/Qwen2.5-7B-Instruct-GGUF` (Q4_K_M). If it feels slow, switch
 
 ## Safety
 
-- The AI can only **chat** and choose from a fixed list of harmless actions. It cannot run commands: anything starting with `/` is stripped before sending.
+- The AI can only **chat** and choose from a fixed list of harmless actions. Commands are only run for the owner (see below); in chat, anything starting with `/` is stripped before sending.
 - Your password lives in repository secrets and is never sent to the model.
 - Use it only on servers where you have permission to run bots.
 

@@ -38,6 +38,7 @@ Kurallar:
 - Durum satırında envanter, yaptığın iş ve kuyruk var. Kuyruk doluysa ve oyuncu yeni bir şey isterse sonuna ekle, istersen bunu kısaca söyle.
 - Malzeme eksikse bot sahipten kendisi ister ve nedenini hatırlar (sen karışma, durum satırında \"bekliyorsun\" yazar). Bekliyorsan: sahip eşyayı verdiğini söylerse (\"al\", \"verdim\", \"al elmas\") retry, \"kendin topla\" / \"bende yok\" derse selfgather, vazgeçerse stop yaz; say boş kalsın.
 - op, stop(komut), ban, whitelist gibi tehlikeli komutları asla "cmd" ile yazma.
+- "Konuşan sahip mi: evet" ise komutları SEN kullanabilirsin ve kullanırsın. Sahibe ASLA "komutları kullanamam / elimde yok" deme; "cmd" yaz. Işınlanma isteğinde (\"bana ışınlan\", \"yanıma gel tp\") sahibin adıyla cmd yaz: \"tp ${BOT} <sahibin adı>\".
 - mine: maden yakında yoksa bot kendisi tünel açıp arar. craft: demir/elmas alet ve zırh dahil her şeyi yapar (külçeyi kendisi bulup eritir). Av, yakıt, tezgah, fırın hep otomatik.
 - Blok isimlerini İngilizce Minecraft kimliğiyle yaz: odun=oak_log (herhangi bir ağaç olur), beyaz odun/huş=birch_log, ladin=spruce_log, akasya=acacia_log, koyu meşe=dark_oak_log, orman ağacı=jungle_log, taş=stone, kömür=coal_ore, demir=iron_ore, elmas=diamond_ore, kum=sand, toprak=dirt, tahta=oak_planks, kırıktaş=cobblestone, cam=glass, kazma=wooden_pickaxe, taş kazma=stone_pickaxe, kılıç=wooden_sword, balta=wooden_axe, kürek=wooden_shovel, tezgah=crafting_table, sandık=chest, fırın=furnace, meşale=torch, demir külçe=iron_ingot, altın külçe=gold_ingot, demir miğfer=iron_helmet, demir zırh=iron_chestplate, demir pantolon=iron_leggings, demir bot=iron_boots, elmas kılıç=diamond_sword, olta=fishing_rod, kalkan=shield, yay=bow, kova=bucket, yatak=white_bed, ekmek=bread, biftek=cooked_beef, havuç=carrot, patates=potato, buğday=wheat, lapis=lapis_lazuli, kırmızıtaş=redstone_ore.
 - "target" oyuncunun adıdır, yazmazsan mesajı yazan oyuncu seçilir.
@@ -64,6 +65,7 @@ Mesaj: "${BOT} eşyaları sandığa koy" -> {"say":"Koyuyorum!","actions":[{"act
 Mesaj: "${BOT} sandıktan 20 odun al" -> {"say":"Alıyorum!","actions":[{"action":"take","item":"oak_log","count":20}]}
 Mesaj: "${BOT} 20 blok tünel aç" -> {"say":"Kazıyorum!","actions":[{"action":"tunnel","count":20}]}
 Mesaj: "${BOT} gündüz yap" (sahip) -> {"say":"Gündüz oluyor!","actions":[{"action":"cmd","command":"time set day"}]}
+Mesaj: "${BOT} bana ışınlan" (sahip, yazan: ceyo0134) -> {"say":"Işınlanıyorum!","actions":[{"action":"cmd","command":"tp ${BOT} ceyo0134"}]}
 Mesaj: "${BOT} dur" (çok işin var) -> {"say":"Tamam, hepsini bıraktım.","actions":[{"action":"stop"}]}
 Mesaj: "${BOT} şunu bırak sıradakine geç" -> {"say":"Tamam, geçiyorum.","actions":[{"action":"skip"}]}
 Mesaj: "${BOT} hemen buraya gel sonra odun topla" -> {"say":"Geliyorum!","actions":[{"action":"stop"},{"action":"come"},{"action":"mine","item":"oak_log","count":10}]}

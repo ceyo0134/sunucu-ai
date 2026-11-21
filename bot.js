@@ -795,11 +795,17 @@ async function think() {
     let saidEarly = false;
     // the model writes "say" first, so the answer goes to chat while the actions are still being generated
     const r = await ask(history.slice(-6), job, (text) => {
+      if (job.owner && DENIAL_RE.test(text)) { log("AI denial suppressed:", text); return; }
       if (current === bot && mayTalk()) { saidEarly = true; log("AI said after", Date.now() - t, "ms"); say(bot, text); }
     });
     log("LLM stats:", JSON.stringify(getStats()));
     log("AI (" + (Date.now() - t) + "ms):", JSON.stringify({ say: r.say, actions: r.actions.map((a) => [a.action, a.item, a.shape, a.count > 1 ? a.count : "", a.target, a.command, a.x, a.y, a.z].filter((v) => v !== "" && v !== null && v !== undefined)) }));
     if (current === bot) {
+      if (job.owner && DENIAL_RE.test(r.say || "")) {
+        r.say = r.actions.some((a) => a.action === "cmd")
+          ? "Tamam, komutu gönderiyorum."
+          : `Komutu şöyle yaz, hemen çalıştırırım: ${USERNAME} /komut`;
+      }
       if (r.say && !saidEarly && mayTalk()) say(bot, r.say);
       await act(bot, r, job);
     }
@@ -811,7 +817,12 @@ async function think() {
   }
 }
 
-const DIRECT_RE = new RegExp("^\\s*(?:" + USERNAME + "|ceyo|bot)\\b[,:]?\\s+\\/(\\S.*)$", "i");
+// "ceyobot /time set day", "ceyobot/tp ceyo0134" (no space) -> strict form, everyone
+const DIRECT_RE = new RegExp("^\\s*(?:" + USERNAME + "|ceyo|bot)\\b[,:]?\\s*\\/(\\S.*)$", "i");
+// "ceyobot şunu kullan /tp ceyo0134 yaz" -> looser form, only for owners (a "/" a few words after the name)
+const LOOSE_RE = new RegExp("^\\s*(?:" + USERNAME + "|ceyo|bot)\\b[^\\/]{0,40}\\/([a-z0-9_:.-]+(?:\\s.*)?)$", "i");
+// The model sometimes says "I can't use commands" to its owner even though it can (and does) -> never let that through
+const DENIAL_RE = /komut\w*[^.!?]{0,40}(kullanam|yapam|çalıştıram|calistiram|veremem|elimde yok|yetkim yok)|(kullanam|yapam|çalıştıram|calistiram)[^.!?]{0,20}komut/i;
 
 function incoming(user, msg) {
   if (!user || !msg || user === USERNAME || !NAME_RE.test(user)) return;
@@ -821,7 +832,7 @@ function incoming(user, msg) {
   if (seen.size > 200) seen.clear();
   history.push(`${user}: ${String(msg).slice(0, 200)}`);
   if (history.length > 20) history.shift();
-  const direct = String(msg).match(DIRECT_RE);
+  const direct = String(msg).match(DIRECT_RE) || (isOwner(user) ? String(msg).match(LOOSE_RE) : null);
   if (direct) { // "ceyobot /time set day" -> run the command directly (owners only)
     const b = current;
     if (!b) return;
