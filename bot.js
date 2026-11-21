@@ -7,6 +7,7 @@ const { Vec3 } = require("vec3");
 const makeItem = require("prismarine-item");
 const { ask, SHAPES } = require("./ai");
 const { isOwner, sanitizeCommand } = require("./cmd");
+const { planCraft, toolTierFor, tierRank, bestPickaxeRank, isLog } = require("./plan");
 
 const HOST = process.env.MC_HOST || "Oynatrtr.aternos.me";
 const PORT = process.env.MC_PORT ? parseInt(process.env.MC_PORT, 10) : undefined;
@@ -166,22 +167,24 @@ function runTask(bot, name, text, fn, owner) {
   })();
 }
 
-async function mineTask(bot, t, item, count) {
+async function mineTask(bot, t, item, count, quiet) {
   const match = blockMatcher(item);
-  if (!match) { say(bot, "Bu bloğun adını anlayamadım."); return; }
+  if (!match) { say(bot, "Bu bloğun adını anlayamadım."); return 0; }
+  let nm = norm(item); if (BLOCK_ALIAS[nm]) nm = BLOCK_ALIAS[nm];
+  if (!(await ensurePickaxe(bot, t, nm))) return 0;
   let got = 0;
   const bad = new Set();
   while (!t.cancel && got < count) {
     const found = bot.findBlocks({ matching: match, maxDistance: 32, count: 12 }).filter((p) => !bad.has(p.toString()));
     if (!found.length) {
       say(bot, got ? `${got} tane aldım, yakında başka yok.` : "Yakında bulamadım.");
-      return;
+      return got;
     }
     const pos = found[0];
     t.text = `${item} topluyorum (${got}/${count})`;
     try {
       await gotoNear(bot, pos, 3);
-      if (t.cancel) return;
+      if (t.cancel) return got;
       const b = bot.blockAt(pos);
       if (!b || !match(b)) continue;
       await digBlock(bot, b);
@@ -192,7 +195,8 @@ async function mineTask(bot, t, item, count) {
       bad.add(pos.toString());
     }
   }
-  if (!t.cancel) say(bot, `${got} tane ${item} topladım!`);
+  if (!t.cancel && !quiet) say(bot, `${got} tane ${item} topladım!`);
+  return got;
 }
 
 async function breakTask(bot, t, e) {
@@ -346,23 +350,105 @@ async function gotoTask(bot, t, x, y, z) {
   }
 }
 
+const CRAFT_ALIAS = {
+  kazma: "wooden_pickaxe", balta: "wooden_axe", kilic: "wooden_sword", "kılıç": "wooden_sword", kurek: "wooden_shovel", "kürek": "wooden_shovel",
+  capa: "wooden_hoe", "çapa": "wooden_hoe", tezgah: "crafting_table", masa: "crafting_table", sopa: "stick", firin: "furnace", "fırın": "furnace",
+  sandik: "chest", "sandık": "chest", mesale: "torch", "meşale": "torch", merdiven: "ladder", tahta: "oak_planks", odun: "oak_planks",
+};
+
+function invCounts(bot) {
+  const inv = {};
+  bot.inventory.items().forEach((i) => { inv[i.name] = (inv[i.name] || 0) + i.count; });
+  // any wood type counts for the planner (it plans with oak, the executor substitutes)
+  inv.oak_log = Object.keys(inv).filter(isLog).reduce((a, k) => a + inv[k], 0) || inv.oak_log || 0;
+  inv.oak_planks = Object.keys(inv).filter((k) => /_planks$/.test(k)).reduce((a, k) => a + (k === "oak_planks" ? 0 : inv[k]), inv.oak_planks || 0);
+  return inv;
+}
+
+async function ensurePickaxe(bot, t, block) {
+  const tier = toolTierFor(block);
+  if (!tier) return true;
+  if (bestPickaxeRank(invCounts(bot)) >= tierRank(tier)) return true;
+  say(bot, `${tier === "wooden" ? "Tahta" : tier === "stone" ? "Taş" : "Demir"} kazma lazım, önce onu yapıyorum.`);
+  return craftItem(bot, t, `${tier}_pickaxe`, 1, true);
+}
+
+async function getTable(bot) {
+  const tb = bot.registry.blocksByName.crafting_table;
+  const near = bot.findBlock({ matching: tb.id, maxDistance: 24 });
+  if (near) { await gotoNear(bot, near.position, 3, 20000).catch(() => {}); return near; }
+  const me = bot.entity.position.floored();
+  for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [-2, -2], [3, 0], [0, 3]]) {
+    const pos = me.offset(dx, 0, dz);
+    const r = await placeAt(bot, pos, "crafting_table", false).catch(() => "fail");
+    if (r === "ok") { await sleep(300); return bot.blockAt(pos); }
+  }
+  return null;
+}
+
+async function craftOnce(bot, name, times, table) {
+  const names = [name];
+  if (/_planks$/.test(name)) {
+    // use whatever wood we have: birch_log -> birch_planks ...
+    bot.inventory.items().filter((i) => isLog(i.name)).forEach((i) => names.unshift(i.name.replace(/_(log|stem)$/, "") + "_planks"));
+  }
+  for (const nm of names) {
+    const def = bot.registry.itemsByName[nm];
+    if (!def) continue;
+    const recipe = bot.recipesFor(def.id, null, 1, table || null)[0];
+    if (recipe) { await bot.craft(recipe, times, table || undefined); return true; }
+  }
+  return false;
+}
+
+// Plans the whole chain (trees -> planks -> sticks -> table -> tool, stone for stone tools ...) and does it step by step.
+async function craftItem(bot, t, name, count, quiet) {
+  const tb = bot.registry.blocksByName.crafting_table;
+  const inv = invCounts(bot);
+  if (tb && bot.findBlock({ matching: tb.id, maxDistance: 24 })) inv.crafting_table = Math.max(1, inv.crafting_table || 0);
+  let steps;
+  try { steps = planCraft(bot.registry, name, count, inv); }
+  catch (e) { log("plan error:", e.message); say(bot, "Bunun nasıl yapılacağını çözemedim."); return false; }
+  const bad = steps.find((s) => s.kind === "unsupported");
+  if (bad) { say(bot, `${bad.item} lazım ama eritme/ocak ya da mob gerekiyor, onu yapamıyorum. Bana ${bad.item} verirsen yaparım.`); return false; }
+  if (!quiet && steps.some((s) => s.kind === "gather")) say(bot, "Malzemeleri toplayıp yapıyorum, biraz sürer.");
+  for (const st of steps) {
+    if (t.cancel) return false;
+    try {
+      if (st.kind === "gather") {
+        t.text = `${st.item} topluyorum`;
+        const countOf = () => { const c = invCounts(bot); return c[st.item] || 0; };
+        const target = countOf() + st.count;
+        for (let tries = 0; tries < 4 && countOf() < target && !t.cancel; tries++) {
+          const got = await mineTask(bot, t, st.block, target - countOf(), true);
+          if (!got) break;
+        }
+        if (countOf() < target) { if (!t.cancel) say(bot, `${st.item} yetmedi, yakında bulamadım.`); return false; }
+      } else if (st.kind === "craft") {
+        t.text = `${st.item} üretiyorum`;
+        let table = null;
+        if (st.table) {
+          table = await getTable(bot);
+          if (!table) { say(bot, "Tezgah koyacak yer bulamadım."); return false; }
+        }
+        if (!(await craftOnce(bot, st.item, st.times, table))) { say(bot, `${st.item} üretemedim.`); return false; }
+        await sleep(300);
+      }
+    } catch (e) {
+      log("craft step error:", e.message);
+      say(bot, "Yaparken bir şey ters gitti.");
+      return false;
+    }
+  }
+  return true;
+}
+
 async function craftTask(bot, t, item, n) {
   let name = norm(item);
-  if (PLACE_ALIAS[name]) name = PLACE_ALIAS[name];
-  const def = bot.registry.itemsByName[name];
-  if (!def) { say(bot, "Bu eşyayı tanımıyorum."); return; }
-  let table = null;
-  let recipe = bot.recipesFor(def.id, null, 1, null)[0];
-  if (!recipe) {
-    const tb = bot.registry.blocksByName.crafting_table;
-    table = tb && bot.findBlock({ matching: tb.id, maxDistance: 24 });
-    if (table) recipe = bot.recipesFor(def.id, null, 1, table)[0];
-  }
-  if (!recipe) { say(bot, `${item} için malzemem yok ya da yakında tezgah yok.`); return; }
-  if (table) await gotoNear(bot, table.position, 3, 15000).catch(() => {});
-  const per = (recipe.result && recipe.result.count) || 1;
-  await bot.craft(recipe, Math.max(1, Math.ceil(n / per)), table || undefined);
-  say(bot, `${item} ürettim!`);
+  name = CRAFT_ALIAS[name] || PLACE_ALIAS[name] || name;
+  if (!bot.registry.itemsByName[name]) { say(bot, "Bu eşyayı tanımıyorum."); return; }
+  const ok = await craftItem(bot, t, name, n, false);
+  if (ok && !t.cancel) say(bot, `${item} hazır!`);
 }
 
 async function sleepTask(bot, t) {
@@ -422,7 +508,10 @@ async function act(bot, r, job) {
       break;
     case "stop": cancelTask(); guarding = null; bot.pathfinder.setGoal(null); break;
     case "mine": runTask(bot, "mine", `${r.item} topluyorum`, (t) => mineTask(bot, t, r.item, n), job.owner); break;
-    case "break": runTask(bot, "break", "blok kırıyorum", (t) => breakTask(bot, t, e), job.owner); break;
+    case "break":
+      if (r.item) runTask(bot, "mine", `${r.item} kırıyorum`, (t) => mineTask(bot, t, r.item, n), job.owner);
+      else runTask(bot, "break", "blok kırıyorum", (t) => breakTask(bot, t, e), job.owner);
+      break;
     case "place": runTask(bot, "place", "blok koyuyorum", (t) => placeTask(bot, t, e, r.item), job.owner); break;
     case "build": runTask(bot, "build", "bir şey kuruyorum", (t) => buildTask(bot, t, e, r.shape, r.item, n), job.owner); break;
     case "give": runTask(bot, "give", "eşya veriyorum", (t) => giveTask(bot, t, e, r.item, n), job.owner); break;
@@ -678,7 +767,9 @@ async function runSession() {
   log("Session finished");
 }
 
-(async () => {
+module.exports = { craftItem, mineTask, invCounts };
+
+if (require.main === module) (async () => {
   do {
     await runSession();
     if (ONCE) break;
