@@ -1,0 +1,46 @@
+name: ai
+on:
+  workflow_dispatch:
+concurrency:
+  group: ai
+  cancel-in-progress: false
+permissions:
+  actions: write
+  contents: read
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci
+      - run: pip install huggingface_hub
+      - name: Download model
+        run: python3 get_model.py
+        env:
+          MODEL_REPO: ${{ vars.MODEL_REPO || 'bartowski/Qwen2.5-7B-Instruct-GGUF' }}
+          MODEL_PATTERN: ${{ vars.MODEL_PATTERN || 'Q4_K_M' }}
+      - name: Start llama.cpp server
+        run: bash start_llm.sh
+      - name: Run bot
+        run: node bot.js
+        env:
+          ONCE: "1"
+          SESSION_HOURS: "5"
+          MC_HOST: ${{ vars.MC_HOST || 'lunahack.aternos.me' }}
+          MC_USERNAME: ${{ vars.MC_USERNAME || 'ceyobot' }}
+          MC_VERSION: ${{ vars.MC_VERSION || '1.21.4' }}
+          MC_PASSWORD: ${{ secrets.MC_PASSWORD }}
+      - name: Wait 10-20s then start the next round
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sleep $((10 + RANDOM % 11))
+          gh workflow run ai.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
