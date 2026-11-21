@@ -13,6 +13,7 @@ const tests = [
   mk("ceyo0134", "ceyobot şuraya taştan 4 katlı kule yap"),
   mk("ceyo0134", "ceyobot bana 5 odun ver"),
   mk("ceyo0134", "ceyobot baktığım bloğu kır"),
+  mk("ceyo0134", "ceyobot 10 odun topla sonra kazma yap"),
   mk("ceyo0134", "ceyobot dur"),
 ];
 
@@ -21,11 +22,8 @@ const tests = [
     const s = Date.now();
     try {
       const r = await ask(t.hist, t.job);
-      const o = { say: r.say, action: r.action };
-      if (r.item) o.item = r.item;
-      if (r.shape) o.shape = r.shape;
-      if (r.count > 1) o.count = r.count;
-      console.log(`[${t.job.msg}] -> ${JSON.stringify(o)} (${Date.now() - s}ms)`);
+      const acts = r.actions.map((a) => [a.action, a.item, a.shape, a.count > 1 ? a.count : "", a.command].filter(Boolean).join(":"));
+      console.log(`[${t.job.msg}] -> ${JSON.stringify({ say: r.say, actions: acts })} (${Date.now() - s}ms)`);
     } catch (e) {
       console.log(`[${t.job.msg}] ERROR ${e.message}`);
     }

@@ -8,7 +8,7 @@ if ! docker pull "$IMG"; then
   docker pull "$IMG"
 fi
 docker run -d --name llm -p 127.0.0.1:8080:8080 -v "$PWD/models:/models" "$IMG" \
-  -m "/models/${MODEL#models/}" --host 0.0.0.0 --port 8080 -c 2048 -t 4 -np 1
+  -m "/models/${MODEL#models/}" --host 0.0.0.0 --port 8080 -c 6144 -t 4 -np 1
 for i in $(seq 1 120); do
   if curl -sf http://127.0.0.1:8080/health >/dev/null; then
     echo "llm ready after $((i*5))s"

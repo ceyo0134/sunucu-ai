@@ -33,6 +33,9 @@ let current = null;
 let task = null; // { name, text, cancel }
 let busy = false, pending = null, lastThink = 0, lastSpoke = 0;
 let guarding = null; // name of the player we are guarding
+const queue = []; // pending jobs {a, job}; the model fills it, "stop" empties it
+const QUEUE_MAX = 1000;
+let pumping = false, stopEpoch = 0;
 let lastCmdAt = 0, noOpAt = 0; // last command time / last "no permission" reply
 
 // ---------- helpers ----------
@@ -101,7 +104,8 @@ function status(bot) {
     .map((p) => `${p.username} (${Math.round(p.entity.position.distanceTo(me))}m)`)
     .slice(0, 5).join(", ") || "yok";
   return `can ${Math.round(bot.health)}/20, açlık ${bot.food}/20, oyun modu ${bot.game.gameMode}, ` +
-    `envanter: ${invText}, yakındaki oyuncular: ${near}, şu an yaptığın iş: ${task ? task.text : "yok"}`;
+    `envanter: ${invText}, yakındaki oyuncular: ${near}, şu an yaptığın iş: ${task ? task.text : "yok"}, ` +
+    `kuyrukta bekleyen iş: ${queue.length}${queue.length ? " (sıradakiler: " + queue.slice(0, 5).map((q) => q.a.action + (q.a.item ? ":" + q.a.item : "") + (q.a.count > 1 ? " x" + q.a.count : "")).join(", ") + ")" : ""}`;
 }
 
 async function gotoNear(bot, pos, range, ms = 20000) {
@@ -484,18 +488,13 @@ async function fightTask(bot, t) {
 }
 
 // ---------- AI brain ----------
-async function act(bot, r, job) {
-  const name = r.target || job.user;
+// Runs ONE action now and waits until it is finished (long jobs return when done).
+async function execute(bot, a, job) {
+  const name = a.target || job.user;
   const p = bot.players[name];
   const e = p && p.entity;
-  const n = Math.max(1, Math.min(64, r.count || 1));
-  switch (r.action) {
-    case "jump":
-      bot.setControlState("jump", true);
-      setTimeout(() => bot.setControlState("jump", false), 300);
-      break;
-    case "wave": bot.swingArm(); break;
-    case "look": if (e) await bot.lookAt(e.position.offset(0, e.height || 1.6, 0)); break;
+  const n = Math.max(1, Math.min(a.action === "mine" || a.action === "break" || a.action === "craft" ? 1000 : 64, a.count || 1));
+  switch (a.action) {
     case "come":
       cancelTask(); guarding = null;
       if (e) bot.pathfinder.setGoal(new goals.GoalNear(e.position.x, e.position.y, e.position.z, 2));
@@ -506,36 +505,87 @@ async function act(bot, r, job) {
       if (e) bot.pathfinder.setGoal(new goals.GoalFollow(e, 2), true);
       else say(bot, "Seni göremiyorum, biraz yaklaş.");
       break;
-    case "stop": cancelTask(); guarding = null; bot.pathfinder.setGoal(null); break;
-    case "mine": runTask(bot, "mine", `${r.item} topluyorum`, (t) => mineTask(bot, t, r.item, n), job.owner); break;
-    case "break":
-      if (r.item) runTask(bot, "mine", `${r.item} kırıyorum`, (t) => mineTask(bot, t, r.item, n), job.owner);
-      else runTask(bot, "break", "blok kırıyorum", (t) => breakTask(bot, t, e), job.owner);
-      break;
-    case "place": runTask(bot, "place", "blok koyuyorum", (t) => placeTask(bot, t, e, r.item), job.owner); break;
-    case "build": runTask(bot, "build", "bir şey kuruyorum", (t) => buildTask(bot, t, e, r.shape, r.item, n), job.owner); break;
-    case "give": runTask(bot, "give", "eşya veriyorum", (t) => giveTask(bot, t, e, r.item, n), job.owner); break;
-    case "heal": runTask(bot, "heal", "iyileştiriyorum", (t) => healTask(bot, t, name), job.owner); break;
     case "guard":
       cancelTask();
       if (e) { guarding = name; bot.pathfinder.setGoal(new goals.GoalFollow(e, 3), true); }
       else say(bot, "Seni göremiyorum, biraz yaklaş.");
       break;
-    case "fight": runTask(bot, "fight", "savaşıyorum", (t) => fightTask(bot, t), job.owner); break;
-    case "goto":
-      if (r.x === null || r.y === null || r.z === null) say(bot, "Koordinatları tam söyler misin? (x y z)");
-      else runTask(bot, "goto", "yürüyorum", (t) => gotoTask(bot, t, r.x, r.y, r.z), job.owner);
+    case "mine": await runTask(bot, "mine", `${a.item} topluyorum`, (t) => mineTask(bot, t, a.item, n), job.owner); break;
+    case "break":
+      if (a.item) await runTask(bot, "mine", `${a.item} kırıyorum`, (t) => mineTask(bot, t, a.item, n), job.owner);
+      else await runTask(bot, "break", "blok kırıyorum", (t) => breakTask(bot, t, e), job.owner);
       break;
-    case "craft": runTask(bot, "craft", `${r.item} üretiyorum`, (t) => craftTask(bot, t, r.item, n), job.owner); break;
-    case "sleep": runTask(bot, "sleep", "uyuyorum", (t) => sleepTask(bot, t), job.owner); break;
+    case "place": await runTask(bot, "place", "blok koyuyorum", (t) => placeTask(bot, t, e, a.item), job.owner); break;
+    case "build": await runTask(bot, "build", "bir şey kuruyorum", (t) => buildTask(bot, t, e, a.shape, a.item, n), job.owner); break;
+    case "give": await runTask(bot, "give", "eşya veriyorum", (t) => giveTask(bot, t, e, a.item, n), job.owner); break;
+    case "heal": await runTask(bot, "heal", "iyileştiriyorum", (t) => healTask(bot, t, name), job.owner); break;
+    case "fight": await runTask(bot, "fight", "savaşıyorum", (t) => fightTask(bot, t), job.owner); break;
+    case "goto":
+      if (a.x === null || a.y === null || a.z === null) say(bot, "Koordinatları tam söyler misin? (x y z)");
+      else await runTask(bot, "goto", "yürüyorum", (t) => gotoTask(bot, t, a.x, a.y, a.z), job.owner);
+      break;
+    case "craft": await runTask(bot, "craft", `${a.item} üretiyorum`, (t) => craftTask(bot, t, a.item, n), job.owner); break;
+    case "sleep": await runTask(bot, "sleep", "uyuyorum", (t) => sleepTask(bot, t), job.owner); break;
     case "cmd": {
       if (!job.owner) { say(bot, "Komutları sadece sahibim verebilir."); break; }
-      const res = await runCommand(bot, r.command);
+      const res = await runCommand(bot, a.command);
       if (!res.ok) say(bot, String(res.reason).startsWith("denied") ? "O komut güvenlik için yasak." : "Bu komutu çalıştıramam.");
       break;
     }
     default: break;
   }
+}
+
+function stopAll(bot) {
+  stopEpoch++;
+  queue.length = 0;
+  cancelTask();
+  guarding = null;
+  try { bot.pathfinder.setGoal(null); } catch (_) {}
+}
+
+// Works through the queue one job at a time. Jobs added while it runs are picked up.
+async function pump(bot) {
+  if (pumping) return;
+  pumping = true;
+  let ran = 0;
+  const epoch = stopEpoch;
+  try {
+    while (queue.length && current === bot) {
+      const q = queue.shift();
+      log("JOB:", JSON.stringify({ action: q.a.action, item: q.a.item, count: q.a.count, left: queue.length }));
+      try { await execute(bot, q.a, q.job); } catch (e) { log("job error:", e.message); }
+      ran++;
+    }
+    if (ran >= 2 && !queue.length && current === bot && epoch === stopEpoch) say(bot, "Tüm işler bitti!");
+  } finally {
+    pumping = false;
+    if (queue.length && current === bot) setTimeout(() => pump(bot), 200); // something was added at the very end
+  }
+}
+
+// Instant actions happen right away, everything else goes to the queue in the model's order.
+async function act(bot, r, job) {
+  const e = (bot.players[r.target || job.user] || {}).entity;
+  let added = 0;
+  for (const a of r.actions) {
+    switch (a.action) {
+      case "stop": stopAll(bot); break;
+      case "skip": cancelTask(); break;
+      case "jump":
+        bot.setControlState("jump", true);
+        setTimeout(() => bot.setControlState("jump", false), 300);
+        break;
+      case "wave": bot.swingArm(); break;
+      case "look": { const pl = (bot.players[a.target || job.user] || {}).entity || e; if (pl) await bot.lookAt(pl.position.offset(0, pl.height || 1.6, 0)); break; }
+      default:
+        if (queue.length >= QUEUE_MAX) { say(bot, "Kuyruk dolu, biraz bekle."); return; }
+        if (a.action === "cmd" && !job.owner) { say(bot, "Komutları sadece sahibim verebilir."); break; }
+        queue.push({ a, job: { user: job.user, owner: job.owner } });
+        added++;
+    }
+  }
+  if (added) pump(bot);
 }
 
 async function think() {
@@ -548,14 +598,9 @@ async function think() {
     job.status = status(bot);
     const t = Date.now();
     const r = await ask(history.slice(-10), job);
-    log("AI (" + (Date.now() - t) + "ms):", JSON.stringify({ say: r.say, action: r.action, item: r.item, shape: r.shape, count: r.count, target: r.target, command: r.command, x: r.x, y: r.y, z: r.z }));
+    log("AI (" + (Date.now() - t) + "ms):", JSON.stringify({ say: r.say, actions: r.actions.map((a) => [a.action, a.item, a.shape, a.count > 1 ? a.count : "", a.target, a.command, a.x, a.y, a.z].filter((v) => v !== "" && v !== null && v !== undefined)) }));
     if (current === bot) {
-      let sayText = r.say;
-      if (r.action === "give") {
-        let nm = norm(r.item); if (PLACE_ALIAS[nm]) nm = PLACE_ALIAS[nm];
-        if (!bot.inventory.items().some((i) => i.name === nm)) { sayText = `Bende ${r.item || "o"} yok.`; r.action = "none"; }
-      }
-      if (sayText && (job.addressed || job.system || Date.now() - lastSpoke > 60000)) say(bot, sayText);
+      if (r.say && (job.addressed || job.system || Date.now() - lastSpoke > 60000)) say(bot, r.say);
       await act(bot, r, job);
     }
   } catch (e) {
@@ -726,6 +771,7 @@ function connect(msLeft) {
       finished = true;
       if (current === bot) current = null;
       guarding = null;
+      queue.length = 0;
       cancelTask();
       timers.forEach((t) => { clearTimeout(t); clearInterval(t); });
       try { bot.end(); } catch (_) {}

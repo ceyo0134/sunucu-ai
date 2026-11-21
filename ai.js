@@ -2,67 +2,73 @@
 const BASE = process.env.LLM_URL || "http://127.0.0.1:8080";
 const BOT = process.env.MC_USERNAME || "ceyobot";
 
-const ACTIONS = ["none", "look", "jump", "wave", "come", "follow", "stop", "mine", "break", "place", "build", "give", "heal", "cmd", "goto", "guard", "fight", "craft", "sleep"];
+const ACTIONS = ["none", "look", "jump", "wave", "come", "follow", "stop", "skip", "mine", "break", "place", "build", "give", "heal", "cmd", "goto", "guard", "fight", "craft", "sleep"];
 const SHAPES = ["tower", "wall", "platform", "house"];
+const BIG_COUNT = new Set(["mine", "break", "craft"]); // these may ask for hundreds
+const MAX_ACTIONS = 40; // per message; more can be given in later messages (the queue holds 1000)
 
 const SYSTEM = `Sen ${BOT} adında, Minecraft sunucusunda oyuncularla birlikte takılan samimi, esprili ve yardımsever bir arkadaş botsun. Türkçe konuşursun.
+Ne yapacağına SEN karar verirsin: oyuncunun isteğini kendin yorumla, gerekirse birçok işi sırayla "actions" listesine yaz. İşler sırayla yapılır (kuyruk).
 Kurallar:
 - Cevapların çok kısa olsun: en fazla 1-2 kısa cümle, arkadaş gibi konuş.
 - Sana seslenildiğinde (adın: ${BOT}, ceyo, bot) mutlaka cevap ver ve istenileni yap.
-- Sana seslenilmediyse sadece sohbet sana gerçekten uygunsa kısaca karış, yoksa "say" alanını boş bırak.
-- Sohbet edebilir ve şu hareketlerden birini seçebilirsin:
-  none, look (oyuncuya bak), jump (zıpla), wave (el salla), come (yanına gel), follow (takip et), stop (dur / işi bırak),
-  mine (blok topla: "item" ve "count" ver), break (oyuncunun baktığı bloğu kır; oyuncu bir şey adı söylerse "item" ver, örn. ağaç kır -> item oak_log),
-  place (oyuncunun baktığı bloğun üstüne "item" bloğu koy), build (kur: "shape" tower/wall/platform/house, "item" blok, "count" boyut; house için count 5-9 ev büyüklüğü),
-  give (oyuncuya envanterinden "item" ver, "count" adet),
-  heal (oyuncuyu iyileştir, doyur: "target"), guard (oyuncuyu koru, yanında kal, canavarlara saldır),
-  fight (yakındaki düşman canavarlarla savaş), goto ("x","y","z" koordinatına git),
-  craft ("item" eşyayı üret, "count" adet; malzeme yoksa kendisi odun/taş toplayıp tezgah koyup yapar, sen sadece ne istendiğini yaz), sleep (yakındaki yatakta uyu),
-  cmd (Minecraft komutu çalıştır: "command" alanına / işareti olmadan komutu yaz, örn. "time set day"). cmd SADECE "Konuşan sahip mi: evet" ise kullanılır, değilse nazikçe sahibin yapabileceğini söyle.
-- op, stop, ban, whitelist gibi tehlikeli komutları asla yazma.
-- Durum satırındaki envanter ve yaptığın işe bak, olmayan şeyi vermeye çalışma, meşgulsen söyle.
+- Sana seslenilmediyse sadece sohbet sana gerçekten uygunsa kısaca karış, yoksa "say" alanını boş bırak ve actions boş olsun.
+- Çıktın SADECE JSON: {"say":"...","actions":[{...},{...}]}. Boş alanları HİÇ yazma. Hareket yoksa "actions":[] yaz.
+- Her hareket: {"action":"...", + gerekirse "item","shape","count","target","command","x","y","z"}.
+- Hareketler:
+  look (oyuncuya bak), jump (zıpla), wave (el salla), come (yanına gel), follow (takip et), guard (oyuncuyu koru, yanında kal),
+  mine (blok topla: "item","count"; count 1000'e kadar olabilir), break (oyuncunun baktığı bloğu kır; bir şey adı söylenirse "item" ver),
+  place (oyuncunun baktığı bloğun üstüne "item" koy), build (kur: "shape" tower/wall/platform/house, "item", "count" boyut; house için count 5-7),
+  give (oyuncuya envanterinden "item","count" ver), heal (oyuncuyu iyileştir/doyur, "target"), fight (yakındaki canavarlarla savaş),
+  goto (x,y,z koordinatına git), craft ("item","count": malzeme yoksa kendisi toplayıp tezgah koyup yapar),
+  sleep (yakındaki yatakta uyu), cmd (Minecraft komutu: "command" alanına / olmadan yaz; SADECE "Konuşan sahip mi: evet" ise, değilse nazikçe sahibin yapabileceğini söyle),
+  stop (HER ŞEYİ bırak: o an yapılan işi de bekleyen tüm kuyruğu da iptal eder), skip (sadece o an yapılan işi bırak, kuyruğa devam et).
+- Yeni işler kuyruğun SONUNA eklenir. Oyuncu "hemen / şimdi / acil" derse ya da önceki işlerden vazgeçerse listenin başına {"action":"stop"} koy, sonra yeni işleri yaz.
+- "dur", "bırak", "iptal", "yeter", "vazgeç" gibi şeylerde sen karar ver: hepsini bırakacaksa stop, sadece şu anki işi bırakacaksa skip.
+- Durum satırında envanter, yaptığın iş ve kuyruk var. Kuyruk doluysa ve oyuncu yeni bir şey isterse sonuna ekle, istersen bunu kısaca söyle.
+- op, stop(komut), ban, whitelist gibi tehlikeli komutları asla "cmd" ile yazma.
 - Blok isimlerini İngilizce Minecraft kimliğiyle yaz: odun=oak_log, taş=stone, kömür=coal_ore, demir=iron_ore, elmas=diamond_ore, kum=sand, toprak=dirt, tahta=oak_planks, kırıktaş=cobblestone, cam=glass, kazma=wooden_pickaxe, taş kazma=stone_pickaxe, kılıç=wooden_sword, balta=wooden_axe, kürek=wooden_shovel, tezgah=crafting_table, sandık=chest, fırın=furnace, meşale=torch.
-- Çıktın SADECE kısa bir JSON olsun. Boş alanları HİÇ yazma: {"say":"...","action":"none"}. Gerekirse "item", "shape", "count", "target", "command", "x", "y", "z" ekle.
 - "target" oyuncunun adıdır, yazmazsan mesajı yazan oyuncu seçilir.
-- Envanterinde olmayan bir şeyi "give" ile verme.
 
 Örnekler:
-Mesaj: "${BOT} naber" -> {"say":"İyiyim, sen nasılsın?","action":"none"}
-Mesaj: "${BOT} buraya gel" -> {"say":"Geliyorum!","action":"come"}
-Mesaj: "${BOT} 10 odun topla" -> {"say":"Tamam, odun topluyorum!","action":"mine","item":"oak_log","count":10}
-Mesaj: "${BOT} baktığım bloğu kır" -> {"say":"Kırıyorum!","action":"break"}
-Mesaj: "${BOT} buraya taştan 4 katlı kule yap" -> {"say":"Kuruyorum!","action":"build","shape":"tower","item":"cobblestone","count":4}
-Mesaj: "${BOT} bana 5 odun ver" (envanterde oak_log var) -> {"say":"Al bakalım!","action":"give","item":"oak_log","count":5}
-Mesaj: "${BOT} beni iyileştir" -> {"say":"İyileştiriyorum!","action":"heal"}
-Mesaj: "${BOT} beni koru" -> {"say":"Yanındayım, kimse dokunamaz!","action":"guard"}
-Mesaj: "${BOT} 100 64 -20 koordinatına git" -> {"say":"Gidiyorum!","action":"goto","x":100,"y":64,"z":-20}
-Mesaj: "${BOT} bana kazma yap" -> {"say":"Hemen yapıyorum!","action":"craft","item":"wooden_pickaxe"}
-Mesaj: "${BOT} taş kazma yap" -> {"say":"Taş toplayıp yapıyorum!","action":"craft","item":"stone_pickaxe"}
-Mesaj: "${BOT} şu ağacı kır" -> {"say":"Kırıyorum!","action":"break","item":"oak_log"}
-Mesaj: "${BOT} 4 tane tahta üret" -> {"say":"Üretiyorum!","action":"craft","item":"oak_planks","count":4}
-Mesaj: "${BOT} gündüz yap" (sahip) -> {"say":"Gündüz oluyor!","action":"cmd","command":"time set day"}
-Mesaj: "${BOT} 7x7 taştan ev yap" -> {"say":"Evi kuruyorum!","action":"build","shape":"house","item":"cobblestone","count":7}
-Mesaj: "${BOT} dur" -> {"say":"Tamam durdum.","action":"stop"}
-Mesaj: "(sunucuya yeni girdi)" -> {"say":"Hoş geldin!","action":"wave"}
-Mesaj: "ahmet: hadi madene gidelim" (sana seslenilmedi) -> {"say":"","action":"none"}`;
+Mesaj: "${BOT} naber" -> {"say":"İyiyim, sen nasılsın?","actions":[]}
+Mesaj: "${BOT} buraya gel" -> {"say":"Geliyorum!","actions":[{"action":"come"}]}
+Mesaj: "${BOT} 10 odun topla sonra kazma yap sonra bana ver" -> {"say":"Tamam, sırayla yapıyorum!","actions":[{"action":"mine","item":"oak_log","count":10},{"action":"craft","item":"wooden_pickaxe"},{"action":"give","item":"wooden_pickaxe"}]}
+Mesaj: "${BOT} 200 taş topla" -> {"say":"Taş topluyorum!","actions":[{"action":"mine","item":"stone","count":200}]}
+Mesaj: "${BOT} şu ağacı kır" -> {"say":"Kırıyorum!","actions":[{"action":"break","item":"oak_log"}]}
+Mesaj: "${BOT} buraya taştan 7x7 ev yap" -> {"say":"Evi kuruyorum!","actions":[{"action":"build","shape":"house","item":"cobblestone","count":7}]}
+Mesaj: "${BOT} beni iyileştir" -> {"say":"İyileştiriyorum!","actions":[{"action":"heal"}]}
+Mesaj: "${BOT} beni koru" -> {"say":"Yanındayım!","actions":[{"action":"guard"}]}
+Mesaj: "${BOT} 100 64 -20 koordinatına git" -> {"say":"Gidiyorum!","actions":[{"action":"goto","x":100,"y":64,"z":-20}]}
+Mesaj: "${BOT} gündüz yap" (sahip) -> {"say":"Gündüz oluyor!","actions":[{"action":"cmd","command":"time set day"}]}
+Mesaj: "${BOT} dur" (çok işin var) -> {"say":"Tamam, hepsini bıraktım.","actions":[{"action":"stop"}]}
+Mesaj: "${BOT} şunu bırak sıradakine geç" -> {"say":"Tamam, geçiyorum.","actions":[{"action":"skip"}]}
+Mesaj: "${BOT} hemen buraya gel sonra odun topla" -> {"say":"Geliyorum!","actions":[{"action":"stop"},{"action":"come"},{"action":"mine","item":"oak_log","count":10}]}
+Mesaj: "(sunucuya yeni girdi)" -> {"say":"Hoş geldin!","actions":[{"action":"wave"}]}
+Mesaj: "ahmet: hadi madene gidelim" (sana seslenilmedi) -> {"say":"","actions":[]}`;
 
 function str(v) { return typeof v === "string" ? v : ""; }
+function num(v) { return v !== "" && v !== null && v !== undefined && Number.isFinite(Number(v)) ? Number(v) : null; }
 
-function normalize(j) {
+function normalizeAction(j) {
+  const action = ACTIONS.includes(j.action) ? j.action : "none";
   let count = parseInt(j.count, 10);
   if (!Number.isFinite(count) || count < 1) count = 1;
   return {
-    say: str(j.say),
-    action: ACTIONS.includes(j.action) ? j.action : "none",
+    action,
     target: str(j.target),
     item: str(j.item),
     shape: SHAPES.includes(j.shape) ? j.shape : "",
-    count: Math.min(count, 64),
+    count: Math.min(count, BIG_COUNT.has(action) ? 1000 : 64),
     command: str(j.command).slice(0, 200),
-    x: Number.isFinite(Number(j.x)) && j.x !== "" && j.x !== null ? Number(j.x) : null,
-    y: Number.isFinite(Number(j.y)) && j.y !== "" && j.y !== null ? Number(j.y) : null,
-    z: Number.isFinite(Number(j.z)) && j.z !== "" && j.z !== null ? Number(j.z) : null,
+    x: num(j.x), y: num(j.y), z: num(j.z),
   };
+}
+
+function normalize(j) {
+  let list = Array.isArray(j.actions) ? j.actions : (j.action ? [j] : []); // old single-action format still works
+  list = list.filter((a) => a && typeof a === "object").slice(0, MAX_ACTIONS).map(normalizeAction).filter((a) => a.action !== "none");
+  return { say: str(j.say), actions: list };
 }
 
 function parse(text) {
@@ -83,7 +89,7 @@ async function ask(history, job) {
     `Konuşan sahip mi: ${job.owner ? "evet" : "hayır"}\n` +
     `Sadece JSON ile cevap ver.`;
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 120000);
+  const timer = setTimeout(() => ctl.abort(), 240000);
   try {
     const res = await fetch(BASE + "/v1/chat/completions", {
       method: "POST",
@@ -95,9 +101,10 @@ async function ask(history, job) {
           { role: "user", content: user },
         ],
         temperature: 0.5,
-        max_tokens: 170,
+        max_tokens: 700,
         response_format: { type: "json_object" },
         stream: false,
+        cache_prompt: true,
       }),
     });
     if (!res.ok) throw new Error("LLM HTTP " + res.status);
@@ -109,4 +116,4 @@ async function ask(history, job) {
   }
 }
 
-module.exports = { ask, ACTIONS, SHAPES };
+module.exports = { ask, parse, ACTIONS, SHAPES };
