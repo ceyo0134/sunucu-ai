@@ -7,7 +7,8 @@ const { Vec3 } = require("vec3");
 const makeItem = require("prismarine-item");
 const { ask, SHAPES } = require("./ai");
 const { isOwner, sanitizeCommand } = require("./cmd");
-const { planCraft, toolTierFor, tierRank, bestPickaxeRank, isLog } = require("./plan");
+const { planCraft, toolTierFor, tierRank, bestPickaxeRank, isLog, smeltOutputFor } = require("./plan");
+const makeExtra = require("./extra");
 
 const HOST = process.env.MC_HOST || "Oynatrtr.aternos.me";
 const PORT = process.env.MC_PORT ? parseInt(process.env.MC_PORT, 10) : undefined;
@@ -103,7 +104,8 @@ function status(bot) {
     .filter((p) => p.entity && p.username !== USERNAME)
     .map((p) => `${p.username} (${Math.round(p.entity.position.distanceTo(me))}m)`)
     .slice(0, 5).join(", ") || "yok";
-  return `can ${Math.round(bot.health)}/20, açlık ${bot.food}/20, oyun modu ${bot.game.gameMode}, ` +
+  const xp = bot.experience ? bot.experience.level : 0;
+  return `can ${Math.round(bot.health)}/20, açlık ${bot.food}/20, oyun modu ${bot.game.gameMode}, konum ${Math.round(me.x)} ${Math.round(me.y)} ${Math.round(me.z)}, xp seviyesi ${xp}, ` +
     `envanter: ${invText}, yakındaki oyuncular: ${near}, şu an yaptığın iş: ${task ? task.text : "yok"}, ` +
     `kuyrukta bekleyen iş: ${queue.length}${queue.length ? " (sıradakiler: " + queue.slice(0, 5).map((q) => q.a.action + (q.a.item ? ":" + q.a.item : "") + (q.a.count > 1 ? " x" + q.a.count : "")).join(", ") + ")" : ""}`;
 }
@@ -171,16 +173,29 @@ function runTask(bot, name, text, fn, owner) {
   })();
 }
 
+// Pathfinder may only dig while we are mining (never while it just walks around among player builds).
+let digDepth = 0;
+function digMode(bot, on) {
+  digDepth += on ? 1 : -1;
+  try { bot.pathfinder.movements.canDig = digDepth > 0; } catch (_) {}
+}
 async function mineTask(bot, t, item, count, quiet) {
+  digMode(bot, true);
+  try { return await mineTaskInner(bot, t, item, count, quiet); }
+  finally { digMode(bot, false); }
+}
+
+async function mineTaskInner(bot, t, item, count, quiet) {
   const match = blockMatcher(item);
   if (!match) { say(bot, "Bu bloğun adını anlayamadım."); return 0; }
   let nm = norm(item); if (BLOCK_ALIAS[nm]) nm = BLOCK_ALIAS[nm];
   if (!(await ensurePickaxe(bot, t, nm))) return 0;
-  let got = 0;
+  let got = 0, explores = 0;
   const bad = new Set();
   while (!t.cancel && got < count) {
     const found = bot.findBlocks({ matching: match, maxDistance: 32, count: 12 }).filter((p) => !bad.has(p.toString()));
     if (!found.length) {
+      if (explores < 3 && !t.cancel) { explores++; if (await X.exploreFor(bot, t, match, nm)) continue; }
       say(bot, got ? `${got} tane aldım, yakında başka yok.` : "Yakında bulamadım.");
       return got;
     }
@@ -358,6 +373,8 @@ const CRAFT_ALIAS = {
   kazma: "wooden_pickaxe", balta: "wooden_axe", kilic: "wooden_sword", "kılıç": "wooden_sword", kurek: "wooden_shovel", "kürek": "wooden_shovel",
   capa: "wooden_hoe", "çapa": "wooden_hoe", tezgah: "crafting_table", masa: "crafting_table", sopa: "stick", firin: "furnace", "fırın": "furnace",
   sandik: "chest", "sandık": "chest", mesale: "torch", "meşale": "torch", merdiven: "ladder", tahta: "oak_planks", odun: "oak_planks",
+  olta: "fishing_rod", kalkan: "shield", yay: "bow", kova: "bucket", yatak: "white_bed", ekmek: "bread",
+  iron: "iron_ingot", gold: "gold_ingot", copper: "copper_ingot", demir: "iron_ingot", "altın": "gold_ingot", altin: "gold_ingot", demir_kulce: "iron_ingot", "demir_külçe": "iron_ingot", altin_kulce: "gold_ingot", "altın_külçe": "gold_ingot",
 };
 
 function invCounts(bot) {
@@ -373,7 +390,7 @@ async function ensurePickaxe(bot, t, block) {
   const tier = toolTierFor(block);
   if (!tier) return true;
   if (bestPickaxeRank(invCounts(bot)) >= tierRank(tier)) return true;
-  say(bot, `${tier === "wooden" ? "Tahta" : tier === "stone" ? "Taş" : "Demir"} kazma lazım, önce onu yapıyorum.`);
+  say(bot, `${{ wooden: "Tahta", stone: "Taş", iron: "Demir", diamond: "Elmas" }[tier] || tier} kazma lazım, önce onu yapıyorum.`);
   return craftItem(bot, t, `${tier}_pickaxe`, 1, true);
 }
 
@@ -410,11 +427,13 @@ async function craftItem(bot, t, name, count, quiet) {
   const tb = bot.registry.blocksByName.crafting_table;
   const inv = invCounts(bot);
   if (tb && bot.findBlock({ matching: tb.id, maxDistance: 24 })) inv.crafting_table = Math.max(1, inv.crafting_table || 0);
+  const fu = bot.registry.blocksByName.furnace;
+  if (fu && bot.findBlock({ matching: fu.id, maxDistance: 24 })) inv.furnace = Math.max(1, inv.furnace || 0);
   let steps;
   try { steps = planCraft(bot.registry, name, count, inv); }
   catch (e) { log("plan error:", e.message); say(bot, "Bunun nasıl yapılacağını çözemedim."); return false; }
   const bad = steps.find((s) => s.kind === "unsupported");
-  if (bad) { say(bot, `${bad.item} lazım ama eritme/ocak ya da mob gerekiyor, onu yapamıyorum. Bana ${bad.item} verirsen yaparım.`); return false; }
+  if (bad) { say(bot, `${bad.item} lazım ama onu yapamıyorum (Nether/boss gerekiyor). Bana ${bad.item} verirsen yaparım.`); return false; }
   if (!quiet && steps.some((s) => s.kind === "gather")) say(bot, "Malzemeleri toplayıp yapıyorum, biraz sürer.");
   for (const st of steps) {
     if (t.cancel) return false;
@@ -428,6 +447,17 @@ async function craftItem(bot, t, name, count, quiet) {
           if (!got) break;
         }
         if (countOf() < target) { if (!t.cancel) say(bot, `${st.item} yetmedi, yakında bulamadım.`); return false; }
+      } else if (st.kind === "hunt") {
+        t.text = `${st.item} için ${st.mob} avlıyorum`;
+        const countOf = () => invCounts(bot)[st.item] || 0;
+        const target = countOf() + st.count;
+        for (let tries = 0; tries < st.count * 4 + 4 && countOf() < target && !t.cancel; tries++) {
+          if (!(await X.huntTask(bot, t, st.mob, 1, true))) break;
+        }
+        if (countOf() < target) { if (!t.cancel) say(bot, `${st.item} yetmedi, yakında ${st.mob} bulamadım.`); return false; }
+      } else if (st.kind === "smelt") {
+        if (!(await X.smeltStep(bot, t, st))) return false;
+        await sleep(300);
       } else if (st.kind === "craft") {
         t.text = `${st.item} üretiyorum`;
         let table = null;
@@ -447,10 +477,11 @@ async function craftItem(bot, t, name, count, quiet) {
   return true;
 }
 
-async function craftTask(bot, t, item, n) {
+async function craftTask(bot, t, item, n, smelt) {
   let name = norm(item);
   name = CRAFT_ALIAS[name] || PLACE_ALIAS[name] || name;
   if (!bot.registry.itemsByName[name]) { say(bot, "Bu eşyayı tanımıyorum."); return; }
+  if (smelt && smeltOutputFor(name)) name = smeltOutputFor(name); // "raw_iron" / "beef" -> what the furnace makes
   const ok = await craftItem(bot, t, name, n, false);
   if (ok && !t.cancel) say(bot, `${item} hazır!`);
 }
@@ -473,7 +504,7 @@ async function fightTask(bot, t) {
     idle = 0;
     t.text = "canavarla savaşıyorum";
     try {
-      const sword = bot.inventory.items().find((i) => i.name.endsWith("_sword"));
+      const sword = X.bestWeapon(bot);
       if (sword) await bot.equip(sword, "hand").catch(() => {});
       await gotoNear(bot, mob.position, 2, 6000).catch(() => {});
       for (let k = 0; k < 8 && mob.isValid && !t.cancel; k++) {
@@ -487,13 +518,20 @@ async function fightTask(bot, t) {
   if (!t.cancel) say(bot, kills ? `${kills} canavarı hallettim!` : "Yakında canavar kalmadı.");
 }
 
+// ---------- extra abilities (extra.js) ----------
+const X = makeExtra({
+  say, log, sleep, gotoNear, digBlock, placeAt, norm, isProtected,
+  craftItem: (...a) => craftItem(...a),
+  mineTask: (...a) => mineTask(...a),
+});
+
 // ---------- AI brain ----------
 // Runs ONE action now and waits until it is finished (long jobs return when done).
 async function execute(bot, a, job) {
   const name = a.target || job.user;
   const p = bot.players[name];
   const e = p && p.entity;
-  const n = Math.max(1, Math.min(a.action === "mine" || a.action === "break" || a.action === "craft" ? 1000 : 64, a.count || 1));
+  const n = Math.max(1, Math.min(["mine", "break", "craft", "smelt", "hunt", "tunnel", "fish", "take"].includes(a.action) ? 1000 : 64, a.count || 1));
   switch (a.action) {
     case "come":
       cancelTask(); guarding = null;
@@ -526,6 +564,20 @@ async function execute(bot, a, job) {
       break;
     case "craft": await runTask(bot, "craft", `${a.item} üretiyorum`, (t) => craftTask(bot, t, a.item, n), job.owner); break;
     case "sleep": await runTask(bot, "sleep", "uyuyorum", (t) => sleepTask(bot, t), job.owner); break;
+    case "smelt": await runTask(bot, "craft", `${a.item} eritiyorum`, (t) => craftTask(bot, t, a.item, n, true), job.owner); break;
+    case "armor": await runTask(bot, "armor", "zırh giyiyorum", (t) => X.armorTask(bot, t), job.owner); break;
+    case "store": await runTask(bot, "store", "sandığa koyuyorum", (t) => X.storeTask(bot, t, a.item), job.owner); break;
+    case "take": await runTask(bot, "take", "sandıktan alıyorum", (t) => X.takeTask(bot, t, a.item, n), job.owner); break;
+    case "farm": await runTask(bot, "farm", "çiftçilik yapıyorum", (t) => X.farmTask(bot, t), job.owner); break;
+    case "fish": await runTask(bot, "fish", "balık tutuyorum", (t) => X.fishTask(bot, t, Math.min(a.count || 1, 100)), job.owner); break;
+    case "hunt": await runTask(bot, "hunt", "avlanıyorum", (t) => X.huntTask(bot, t, a.item, n, false), job.owner); break;
+    case "tunnel": await runTask(bot, "tunnel", "tünel açıyorum", (t) => X.tunnelTask(bot, t, e, n), job.owner); break;
+    case "digdown": await runTask(bot, "digdown", "aşağı kazıyorum", (t) => X.digDownTask(bot, t, e, a.y), job.owner); break;
+    case "trade": await runTask(bot, "trade", "takas yapıyorum", (t) => X.tradeTask(bot, t, a.item, n), job.owner); break;
+    case "enchant": await runTask(bot, "enchant", "büyülüyorum", (t) => X.enchantTask(bot, t, a.item), job.owner); break;
+    case "ride": await runTask(bot, "ride", "bir şeye biniyorum", (t) => X.rideTask(bot, t, a.item), job.owner); break;
+    case "dismount": try { await bot.dismount(); } catch (_) {} break;
+    case "pickup": await runTask(bot, "pickup", "eşya topluyorum", (t) => X.pickupTask(bot, t), job.owner); break;
     case "cmd": {
       if (!job.owner) { say(bot, "Komutları sadece sahibim verebilir."); break; }
       const res = await runCommand(bot, a.command);
@@ -639,6 +691,7 @@ function incoming(user, msg) {
 }
 
 // ---------- idle behaviour (friend-like) ----------
+let armoring = false;
 function startIdle(bot, timers) {
   // look at nearby players
   timers.push(setInterval(() => {
@@ -662,7 +715,7 @@ function startIdle(bot, timers) {
         if (guarding && d > 3) bot.pathfinder.setGoal(new goals.GoalNear(mob.position.x, mob.position.y, mob.position.z, 2));
         if (d < 4 && Date.now() - lastHit > 600) {
           lastHit = Date.now();
-          const sword = bot.inventory.items().find((i) => i.name.endsWith("_sword"));
+          const sword = X.bestWeapon(bot);
           if (sword && !(bot.heldItem && bot.heldItem.name === sword.name)) bot.equip(sword, "hand").catch(() => {});
           bot.lookAt(mob.position.offset(0, mob.height || 1, 0)).then(() => bot.attack(mob)).catch(() => {});
         }
@@ -672,6 +725,10 @@ function startIdle(bot, timers) {
       }
     } catch (_) {}
   }, 500));
+  // wear the best armor we have (picked up, crafted or given)
+  timers.push(setInterval(() => {
+    if (!armoring) { armoring = true; X.equipBest(bot).catch(() => {}).finally(() => { armoring = false; }); }
+  }, 10000));
   // eat when hungry
   let eating = false;
   timers.push(setInterval(async () => {
@@ -725,6 +782,21 @@ async function runTests(bot) {
       }
       await runTask(bot, "build", "test", (t) => buildTask(bot, t, bot.entity, a, item, parseInt(c, 10) || 2));
     }
+    const quick = (name, fn) => runTask(bot, name, "test", async (t) => {
+      const timer = setTimeout(() => { t.cancel = true; }, 120000); // no test may run longer than 2 minutes
+      try { await fn(t); } finally { clearTimeout(timer); }
+    });
+    if (k === "craft") await quick("craft", (t) => craftTask(bot, t, a, parseInt(b, 10) || 1));
+    if (k === "smelt") await quick("craft", (t) => craftTask(bot, t, a, parseInt(b, 10) || 1, true));
+    if (k === "armor") await quick("armor", (t) => X.armorTask(bot, t));
+    if (k === "tunnel") await quick("tunnel", (t) => X.tunnelTask(bot, t, null, parseInt(a, 10) || 6));
+    if (k === "digdown") await quick("digdown", (t) => X.digDownTask(bot, t, null, a ? parseInt(a, 10) : undefined));
+    if (k === "hunt") await quick("hunt", (t) => X.huntTask(bot, t, a === "any" ? "" : a, parseInt(b, 10) || 1, false));
+    if (k === "fish") await quick("fish", (t) => X.fishTask(bot, t, parseInt(a, 10) || 1));
+    if (k === "farm") await quick("farm", (t) => X.farmTask(bot, t));
+    if (k === "pickup") await quick("pickup", (t) => X.pickupTask(bot, t));
+    if (k === "store") await quick("store", (t) => X.storeTask(bot, t, a));
+    if (k === "trade") await quick("trade", (t) => X.tradeTask(bot, t, a, 1));
     log("TEST done", spec, "|", status(bot));
   }
 }
@@ -786,6 +858,7 @@ function connect(msLeft) {
       try {
         const mv = new Movements(bot);
         mv.canDig = false; mv.allow1by1towers = false; mv.allowParkour = false;
+        bot.registry.blocksArray.forEach((b) => { if (isProtected(b.name)) mv.blocksCantBreak.add(b.id); });
         bot.pathfinder.setMovements(mv);
       } catch (e) { log("Movements error:", e.message); }
       timers.push(setTimeout(() => { if (authTries === 0) doAuth("login"); }, 5000));

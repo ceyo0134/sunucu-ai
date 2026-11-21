@@ -15,6 +15,15 @@ const tests = [
   mk("ceyo0134", "ceyobot baktığım bloğu kır"),
   mk("ceyo0134", "ceyobot 10 odun topla sonra kazma yap"),
   mk("ceyo0134", "ceyobot dur"),
+  mk("ceyo0134", "ceyobot demir kazma yap"),
+  mk("ceyo0134", "ceyobot 10 demir külçe yap"),
+  mk("ceyo0134", "ceyobot zırhını giy"),
+  mk("ceyo0134", "ceyobot balık tut"),
+  mk("ceyo0134", "ceyobot 3 inek avla"),
+  mk("ceyo0134", "ceyobot ekinleri hasat et"),
+  mk("ceyo0134", "ceyobot eşyaları sandığa koy"),
+  mk("ceyo0134", "ceyobot 20 blok tünel aç"),
+  mk("ceyo0134", "ceyobot 5 elmas bul"),
 ];
 
 (async () => {

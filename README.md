@@ -39,3 +39,27 @@ Free to use, no license needed. If you use or share this, a small credit linking
 - **"dur"** is decided by the model: `stop` drops the current job and the whole queue, `skip` only drops the current job and continues with the next one.
 - The status the model sees contains the current job and the next queued jobs, so it knows what is going on.
 - llama.cpp now runs with a 6144 token context (the prompt got bigger) and prompt caching, so only the first message is slow.
+
+## Everything a player can do (new)
+
+The model can now pick from these jobs (all run through the same queue, "dur" / "stop" cancels them):
+
+| Job | What it does |
+| --- | --- |
+| `craft` | Any craftable item, including iron/diamond tools and armor. The planner collects wood and stone, makes a table, **smelts ingots in a furnace** (finds or places one, finds fuel) and **hunts mobs** for leather, string, wool, feathers, bones ... |
+| `smelt` | Furnace jobs: ingots, glass, stone, charcoal, cooked meat, baked potatoes. |
+| `mine` | Mines any block. If an ore is not nearby it **digs down and strip-mines** at the ore's best height (stops at lava or water). |
+| `tunnel`, `digdown` | Dig a 1x2 tunnel (torches every 8 blocks if it has any) or a staircase down to a height. |
+| `armor` | Wears the best armor and shield it has (also automatic every 10 seconds). It also fights with the best sword or axe. |
+| `farm` | Harvests ripe wheat, carrots, potatoes, beetroot and replants; tills dirt next to water with a hoe and plants seeds. |
+| `fish` | Crafts or uses a fishing rod and fishes. |
+| `hunt` | Kills a named mob (cow, pig, sheep, zombie, spider ...) and picks up the drops. |
+| `store`, `take` | Put items into / take items out of the nearest chest or barrel. |
+| `trade` | Trades with the nearest villager (lists trades if you do not name an item). |
+| `enchant` | Uses a nearby enchanting table (needs lapis and XP levels). |
+| `ride`, `dismount`, `pickup` | Boats, horses, pigs, minecarts; collect dropped items. |
+
+Not supported (yet): redstone, brewing, anvils, nether portals, the End, elytra, taming and breeding.
+Protected blocks (chests, furnaces, beds, signs, spawners ...) are never mined or dug through.
+
+**Tests:** `npm test` runs offline checks (recipe planner on two Minecraft versions, the action parser, tunnels / digging / ore search in a fake world). The **test** workflow runs them first, then the model and a short bot session on the server.
