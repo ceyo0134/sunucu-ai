@@ -1,6 +1,6 @@
 # sunucu-ai
 
-A Minecraft chat bot with a **local AI brain** (Turkish-capable LLM) that runs entirely on **GitHub Actions**. It stays on your server, reads the chat, and decides on its own whether to answer and which small action to take (look at you, jump, wave, come to you, follow you, stop).
+A Minecraft chat bot with a **local AI brain** (Turkish-capable LLM) that runs entirely on **GitHub Actions**. It stays on your server, reads the chat, and decides on its own whether to answer and which small action to take (look at you, wave, come to you, follow you, mine blocks, break the block you look at, place blocks, build a tower/wall/platform/house, give you items, stop). It also fights nearby hostile mobs and eats when hungry. Put it in creative mode (`/gamemode creative ceyobot`) and it can build with any block, in survival it needs the blocks in its inventory.
 
 No API keys, no hosting costs: the model runs on the GitHub runner with [llama.cpp](https://github.com/ggml-org/llama.cpp), and public repositories get unlimited Actions minutes.
 

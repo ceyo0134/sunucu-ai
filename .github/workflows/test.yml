@@ -4,7 +4,7 @@ on:
 jobs:
   t:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,7 +28,8 @@ jobs:
         run: node bot.js 2>&1 | tee out.log
         env:
           ONCE: "1"
-          SESSION_HOURS: "0.06"
+          SESSION_HOURS: "0.15"
+          TEST_ACTIONS: ${{ vars.TEST_ACTIONS || 'mine:dirt:2;build:tower:dirt:2' }}
           MC_HOST: ${{ vars.MC_HOST || 'Oynatrtr.aternos.me' }}
           MC_PORT: ${{ vars.MC_PORT || '46490' }}
           MC_USERNAME: ${{ vars.MC_USERNAME || 'ceyobot' }}
