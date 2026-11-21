@@ -72,3 +72,9 @@ Protected blocks (chests, furnaces, beds, signs, spawners ...) are never mined o
 - Raw ores are asked for as the finished item (`demir külçe`, not ham demir). Cheap basics (logs, cobblestone, dirt, sand, gravel, coal) are always gathered without asking.
 - Only the owner is asked. Other players' requests are still gathered by the bot itself.
 - Variables: `ASK_OWNER=0` turns asking off completely, `ASK_ALL=1` asks for the cheap basics too.
+
+## Stronger search (new)
+
+- **"odun" means any tree.** The model writes `oak_log` for plain wood; the bot now mines whatever log it finds (birch, spruce ...), skips stripped logs (player builds), and `give` hands over any wood it holds. Specific woods by name still work: `beyaz odun / huş` = birch, `ladin` = spruce, `akasya`, `koyu meşe`, `orman ağacı`.
+- **Wider scan:** looks within 32, then 64, then 128 blocks (as far as the server has loaded chunks) and keeps 64 candidates, so unreachable spots (treetops, leaves) never end the search early.
+- **Looks around on the surface:** for trees, sand, dirt, stone... when nothing is in sight it walks up to 6 hops of 48 blocks (turning when blocked) to load new chunks and scans again. Ores keep the tunnel search.

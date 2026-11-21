@@ -97,6 +97,65 @@ const flowDone = (async () => {
   T.setCur(null); T.queue.length = 0; T.clearNeed();
 })();
 
+// ---- scanning: any wood, staged radius, unreachable spots, wandering on the surface ----
+const scanDone = (async () => {
+  process.env.MC_PASSWORD = process.env.MC_PASSWORD || "unit-test";
+  const B = require("./bot");
+  const T = B._test;
+  const { Vec3 } = require("vec3");
+  const at = (n) => ({ name: n });
+  const m = T.blockMatcher("oak_log"); // what the model writes for "odun"
+  ok("wood: oak_log means any log", m(at("birch_log")) && m(at("oak_log")) && m(at("spruce_log")) && m(at("jungle_log")));
+  ok("wood: stripped logs are left alone", !m(at("stripped_birch_log")) && !m(at("oak_planks")) && !m(at("oak_leaves")));
+  const bm = T.blockMatcher("beyaz odun");
+  ok("wood: beyaz odun = birch only", bm(at("birch_log")) && !bm(at("oak_log")) && T.blockMatcher("birch_log")(at("birch_log")) && !T.blockMatcher("birch_log")(at("oak_log")));
+
+  // fake bot: only blocks within LOADED blocks of the bot are visible, results nearest first
+  const LOADED = 100;
+  const mk = (positions, start = new Vec3(0, 64, 0)) => {
+    const bot = { entity: { position: start }, chat: () => {}, pathfinder: { setGoal: () => {} } };
+    bot.findBlocks = ({ maxDistance, count }) => positions.map((p) => new Vec3(...p))
+      .filter((p) => p.distanceTo(bot.entity.position) <= Math.min(maxDistance, LOADED))
+      .sort((a, b) => a.distanceTo(bot.entity.position) - b.distanceTo(bot.entity.position)).slice(0, count);
+    bot.pathfinder.goto = async (g) => { bot.entity.position = new Vec3(g.x, 64, g.z); };
+    return bot;
+  };
+  const any = () => true;
+
+  // 20 trees; the 12 nearest are unreachable -> the other 8 must still be found
+  const trees = Array.from({ length: 20 }, (_, i) => [i + 3, 64, 0]);
+  const b1 = mk(trees);
+  const bad = new Set(trees.slice(0, 12).map((p) => new Vec3(...p).toString()));
+  const f1 = T.scanBlocks(b1, any, bad);
+  ok("scan: unreachable spots do not use up the candidates", f1.length === 8 && f1[0].x === 15, `found ${f1.length}`);
+  ok("scan: finds far blocks (staged radius)", T.scanBlocks(mk([[90, 64, 0]]), any, new Set()).length === 1);
+  ok("scan: nothing beyond the loaded area", T.scanBlocks(mk([[160, 64, 0]]), any, new Set()).length === 0);
+
+  // forest 150 blocks east: wander east until it comes into view
+  {
+    const bot = mk([[150, 64, 0], [152, 64, 3]]);
+    const real = Math.random; Math.random = () => 0; // first direction = +x
+    const r = await T.wanderFor(bot, { cancel: false }, any);
+    Math.random = real;
+    ok("wander: walks to new ground until trees are loaded", r === true && bot.entity.position.x >= 48 && bot.entity.position.x <= 150, `x=${bot.entity.position.x}`);
+  }
+  // blocked in the first direction -> turns
+  {
+    const bot = mk([[0, 64, 140]]);
+    bot.pathfinder.goto = async (g) => { if (g.x > 10) return; bot.entity.position = new Vec3(g.x, 64, g.z); }; // east is blocked
+    const real = Math.random; Math.random = () => 0;
+    const r = await T.wanderFor(bot, { cancel: false }, any);
+    Math.random = real;
+    ok("wander: turns when blocked", r === true && bot.entity.position.z > 0, `pos=${bot.entity.position}`);
+  }
+  ok("wander: gives up when there is nothing", (await T.wanderFor(mk([]), { cancel: false }, any, 3)) === false);
+
+  // give: oak_log request, birch in the inventory
+  const inv = (...xs) => ({ inventory: { items: () => xs.map(([name, count]) => ({ name, count })) } });
+  ok("give: oak_log falls back to any wood", T.findInvItem(inv(["birch_log", 5], ["spruce_log", 9]), "oak_log").name === "spruce_log");
+  ok("give: exact name wins, no wrong fallback", T.findInvItem(inv(["oak_log", 1], ["birch_log", 9]), "oak_log").name === "oak_log" && T.findInvItem(inv(["birch_log", 5]), "diamond") === null && T.findInvItem(inv(["birch_planks", 4]), "oak_planks").name === "birch_planks");
+})();
+
 // ---- fake world ----
 function makeWorld(ores) {
   const edits = new Map(); // "x,y,z" -> name
@@ -150,6 +209,7 @@ const mkX = (world, said) => makeExtra({
 
 (async () => {
   await flowDone;
+  await scanDone;
   // tunnel 12 blocks forward through stone
   {
     const w = makeWorld({}); w.bot.entity.position = new Vec3(0.5, 50, 0.5);

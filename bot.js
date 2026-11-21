@@ -80,7 +80,8 @@ const PROTECTED = /(bedrock|barrier|command_block|structure_block|jigsaw|spawner
 const isProtected = (name) => PROTECTED.test(name);
 
 const BLOCK_ALIAS = {
-  odun: "_log", agac: "_log", "ağaç": "_log", log: "_log",
+  odun: "_log", agac: "_log", "ağaç": "_log", log: "_log", oak_log: "_log", // "odun" = any tree (the model writes oak_log for it)
+  beyaz_odun: "birch_log", hus: "birch_log", "huş": "birch_log", ladin: "spruce_log", akasya: "acacia_log", koyu_odun: "dark_oak_log", "koyu_meşe": "dark_oak_log", orman_odunu: "jungle_log",
   tas: "stone", "taş": "stone", komur: "coal_ore", "kömür": "coal_ore",
   demir: "iron_ore", elmas: "diamond_ore", altin: "gold_ore", "altın": "gold_ore",
   kum: "sand", toprak: "dirt", cakil: "gravel", "çakıl": "gravel",
@@ -98,6 +99,7 @@ function blockMatcher(item) {
   if (!/^_?[a-z0-9_]+$/.test(item)) return null;
   return (b) => {
     if (!b || isProtected(b.name)) return false;
+    if (item === "_log" && b.name.startsWith("stripped_")) return false; // stripped logs belong to player builds
     return item.startsWith("_") ? b.name.endsWith(item) : (b.name === item || b.name.endsWith("_" + item));
   };
 }
@@ -118,7 +120,9 @@ function status(bot) {
 }
 
 async function gotoNear(bot, pos, range, ms = 20000) {
-  const goal = new goals.GoalNear(pos.x, pos.y, pos.z, range);
+  return gotoGoal(bot, new goals.GoalNear(pos.x, pos.y, pos.z, range), ms);
+}
+async function gotoGoal(bot, goal, ms = 20000) {
   let timer;
   try {
     await Promise.race([
@@ -186,6 +190,44 @@ function digMode(bot, on) {
   digDepth += on ? 1 : -1;
   try { bot.pathfinder.movements.canDig = digDepth > 0; } catch (_) {}
 }
+// ---------- scanning ----------
+// The bot only sees chunks the server has sent, so "far" means as far as is loaded. Nearby first, then wider.
+const SCAN_RADII = [32, 64, 128];
+
+// Unreachable spots (bad) never use up the candidates: we ask for 64 positions, not 12.
+function scanBlocks(bot, match, bad) {
+  for (const r of SCAN_RADII) {
+    const found = bot.findBlocks({ matching: match, maxDistance: r, count: 64 }).filter((p) => !bad.has(p.toString()));
+    if (found.length) return found;
+  }
+  return [];
+}
+
+// Nothing in sight, not even in the farthest loaded chunk: walk to new ground (loads more chunks) and look again.
+async function wanderFor(bot, t, match, hops = 6) {
+  say(bot, "Burada yok, etrafa bakıyorum.");
+  const D = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  let dir = Math.floor(Math.random() * 4);
+  for (let h = 0; h < hops && !t.cancel; h++) {
+    const before = bot.entity.position.clone();
+    const goal = new goals.GoalNearXZ(Math.round(before.x + D[dir][0] * 48), Math.round(before.z + D[dir][1] * 48), 4);
+    try { await gotoGoal(bot, goal, 30000); } catch (_) {}
+    if (before.distanceTo(bot.entity.position) < 12) dir = (dir + 1) % 4; // blocked (water, cliff) -> turn
+    if (scanBlocks(bot, match, new Set()).length) return true;
+  }
+  return false;
+}
+
+// "odun" is asked for as oak_log / oak_planks, but whatever wood we hold is fine.
+function findInvItem(bot, name) {
+  const items = bot.inventory.items();
+  const exact = items.find((i) => i.name === name);
+  if (exact) return exact;
+  const kind = name === "oak_log" ? /_log$/ : name === "oak_planks" ? /_planks$/ : null;
+  if (!kind) return null;
+  return items.filter((i) => kind.test(i.name)).sort((a, b) => b.count - a.count)[0] || null;
+}
+
 async function mineTask(bot, t, item, count, quiet) {
   digMode(bot, true);
   try { return await mineTaskInner(bot, t, item, count, quiet); }
@@ -200,9 +242,13 @@ async function mineTaskInner(bot, t, item, count, quiet) {
   let got = 0, explores = 0;
   const bad = new Set();
   while (!t.cancel && got < count) {
-    const found = bot.findBlocks({ matching: match, maxDistance: 32, count: 12 }).filter((p) => !bad.has(p.toString()));
+    const found = scanBlocks(bot, match, bad);
     if (!found.length) {
-      if (explores < 3 && !t.cancel) { explores++; if (await X.exploreFor(bot, t, match, nm)) continue; }
+      if (explores < 3 && !t.cancel) {
+        explores++;
+        if (await X.exploreFor(bot, t, match, nm)) continue; // ores: dig a tunnel at the right height
+        if (!/(_ore|debris)$/.test(nm) && (await wanderFor(bot, t, match))) { bad.clear(); continue; } // trees, sand, dirt ...: look around on the surface
+      }
       say(bot, got ? `${got} tane aldım, yakında başka yok.` : "Yakında bulamadım.");
       return got;
     }
@@ -340,7 +386,7 @@ async function giveTask(bot, t, e, item, n) {
   if (!e) { say(bot, "Seni göremiyorum, yakına gel."); return; }
   let name = norm(item);
   if (PLACE_ALIAS[name]) name = PLACE_ALIAS[name];
-  const it = bot.inventory.items().find((i) => i.name === name);
+  const it = findInvItem(bot, name);
   if (!it) { say(bot, `Bende ${item || "o"} yok.`); return; }
   await gotoNear(bot, e.position, 3, 15000).catch(() => {});
   await bot.lookAt(e.position.offset(0, e.height || 1.6, 0));
@@ -975,7 +1021,7 @@ async function runSession() {
   log("Session finished");
 }
 
-module.exports = { craftItem, mineTask, invCounts, _test: { queue, setCur: (q) => { curJob = q; }, getNeed: () => need, clearNeed: () => { need = null; }, canAsk, resumeNeed, needLine } };
+module.exports = { craftItem, mineTask, invCounts, _test: { scanBlocks, wanderFor, findInvItem, blockMatcher, queue, setCur: (q) => { curJob = q; }, getNeed: () => need, clearNeed: () => { need = null; }, canAsk, resumeNeed, needLine } };
 
 if (require.main === module) (async () => {
   do {
