@@ -29,7 +29,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => { console.log(new Date().toISOString(), ...a); try { panel.push(a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" ")); } catch (_) {} };
 
 // ---------- state ----------
-const ADDR_RE = new RegExp("(" + USERNAME + "|ceyo|\\bbot\\b)", "i");
+const NICK = USERNAME.replace(/bot$/i, "").length >= 3 ? USERNAME.replace(/bot$/i, "") : USERNAME; // "Lilybot" -> "Lily": people may use the short name
+const ADDR_RE = new RegExp("(" + USERNAME + "|" + NICK + "|\\bbot\\b)", "i");
 const NAME_RE = /^\.?[A-Za-z0-9_]{3,16}$/;
 const history = [];
 const seen = new Map();
@@ -1086,9 +1087,9 @@ async function think() {
 
 // "ceyobot /time set day", "ceyobot/tp ceyo0134" (no space) -> strict form, everyone
 const CLAIM_RE = /(yapıyorum|yapayım|yapıyoruz|başlıyorum|başlayayım|topluyorum|kuruyorum|kazıyorum|eritiyorum|pişiriyorum|hallediyorum|hallederim|geliyor!|geliyorum|hazırlıyorum|üretiyorum|getiriyorum|gidiyorum)/i;
-const DIRECT_RE = new RegExp("^\\s*(?:" + USERNAME + "|ceyo|bot)\\b[,:]?\\s*\\/(\\S.*)$", "i");
+const DIRECT_RE = new RegExp("^\\s*(?:" + USERNAME + "|" + NICK + "|bot)\\b[,:]?\\s*\\/(\\S.*)$", "i");
 // "ceyobot şunu kullan /tp ceyo0134 yaz" -> looser form, only for owners (a "/" a few words after the name)
-const LOOSE_RE = new RegExp("^\\s*(?:" + USERNAME + "|ceyo|bot)\\b[^\\/]{0,40}\\/([a-z0-9_:.-]+(?:\\s.*)?)$", "i");
+const LOOSE_RE = new RegExp("^\\s*(?:" + USERNAME + "|" + NICK + "|bot)\\b[^\\/]{0,40}\\/([a-z0-9_:.-]+(?:\\s.*)?)$", "i");
 // The model sometimes says "I can't use commands" to its owner even though it can (and does) -> never let that through
 const DENIAL_RE = /komut\w*[^.!?]{0,40}(kullanam|yapam|çalıştıram|calistiram|veremem|elimde yok|yetkim yok)|(kullanam|yapam|çalıştıram|calistiram)[^.!?]{0,20}komut/i;
 
@@ -1368,7 +1369,7 @@ if (require.main === module) (async () => {
     say,
     owner: () => require("./cmd").OWNERS[0],
     status: () => ({ task, guarding, queue: queue.slice(0, 8).map((q) => q.a.action + (q.a.item ? ":" + q.a.item : "") + (q.a.count > 1 ? " x" + q.a.count : "")) }),
-    ask: (text) => incoming(require("./cmd").OWNERS[0], "ceyobot " + text),
+    ask: (text) => incoming(require("./cmd").OWNERS[0], USERNAME + " " + text),
     setPersona: (t) => { const before = getPersona(), now = setPersona(t); if (now !== before) history.length = 0; return now; }, // new persona: forget old-style replies so they do not anchor the tone
     getPersona, maxPersona: MAX_PERSONA,
     stop: (b) => stopAll(b),

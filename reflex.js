@@ -50,7 +50,7 @@ function num(t, def, max) {
 // returns { actions, say, ownerOnly } or null (not a pure body command)
 function parseReflex(msg, botName) {
   let t = " " + norm(msg) + " ";
-  if (botName) t = t.replace(new RegExp("\\b" + norm(botName) + "\\b", "g"), " ");
+  if (botName) for (const n of new Set([norm(botName), norm(botName).replace(/bot$/, "")])) if (n.length >= 3) t = t.replace(new RegExp("\\b" + n + "\\b", "g"), " "); // full name and short name ("lilybot", "lily")
   const full = t;
   const actions = [];
   const says = [];

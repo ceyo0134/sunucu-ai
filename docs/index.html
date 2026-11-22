@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="tr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>ceyobot paneli</title>
+<title>Lilybot paneli</title>
 <style>
 :root{--bg:#111418;--card:#1b2027;--line:#2a323c;--tx:#e8edf2;--mu:#8b96a3;--ac:#4ade80;--bad:#f87171}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px system-ui,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
@@ -20,12 +20,12 @@ canvas{width:100%;image-rendering:pixelated;border-radius:10px;background:#000}.
 #toast{position:fixed;bottom:calc(14px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#000c;padding:9px 14px;border-radius:20px;font-size:14px}
 </style></head><body>
 <div id="login" style="max-width:380px;margin:18vh auto;padding:16px">
-  <h2>🤖 ceyobot paneli</h2><p class="mu">Giriş için panel tokenini yaz. <span style="opacity:.6">(sürüm 3)</span></p>
+  <h2>🤖 Lilybot paneli</h2><p class="mu">Giriş için panel tokenini yaz. <span style="opacity:.6">(sürüm 3)</span></p>
   <input id="tk" type="password" placeholder="Token" autocomplete="current-password">
   <div class="row"><button class="btn p" id="go">Giriş</button></div><div id="err" class="mu" style="color:var(--bad)"></div>
 </div>
 <div id="app" class="hide">
-<header><b id="title">ceyobot</b><span><span id="conn" class="mu">…</span> <button class="btn" id="out" style="padding:6px 10px">Çıkış</button></span></header>
+<header><b id="title">Lilybot</b><span><span id="conn" class="mu">…</span> <button class="btn" id="out" style="padding:6px 10px">Çıkış</button></span></header>
 <nav id="tabs"><button data-t="st" class="on">Durum</button><button data-t="inv">Envanter</button><button data-t="map">Görüş</button><button data-t="chat">Sohbet/Günlük</button><button data-t="ctl">Kontrol</button><button data-t="per">Kişilik</button></nav>
 <main>
 <section id="st"><div class="card"><div class="mu">Can</div><div class="bar"><i id="hp" style="background:#ef4444"></i></div><div class="mu" style="margin-top:8px">Açlık</div><div class="bar"><i id="fd" style="background:#f59e0b"></i></div></div>

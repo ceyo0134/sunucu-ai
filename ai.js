@@ -1,6 +1,7 @@
 // Talks to a local llama.cpp server (OpenAI compatible API) and returns a safe, whitelisted decision.
 const BASE = process.env.LLM_URL || "http://127.0.0.1:8080";
 const BOT = process.env.MC_USERNAME || "ceyobot";
+const NICK = BOT.replace(/bot$/i, "").length >= 3 ? BOT.replace(/bot$/i, "") : BOT;
 
 const ACTIONS = ["none", "look", "jump", "wave", "come", "follow", "stop", "skip", "mine", "break", "place", "build", "give", "heal", "cmd", "goto", "guard", "fight", "craft", "sleep",
   "smelt", "armor", "store", "take", "farm", "fish", "hunt", "tunnel", "digdown", "trade", "enchant", "ride", "dismount", "pickup", "retry", "selfgather", "portal",
@@ -24,7 +25,7 @@ const SYSTEM = `Sen ${BOT} adında, Minecraft sunucusunda oyuncularla birlikte t
 Ne yapacağına SEN karar verirsin: oyuncunun isteğini kendin yorumla, gerekirse birçok işi sırayla "actions" listesine yaz. İşler sırayla yapılır (kuyruk).
 Kurallar:
 - Cevapların çok kısa olsun: en fazla 1-2 kısa cümle, arkadaş gibi konuş.
-- Sana seslenildiğinde (adın: ${BOT}, ceyo, bot) mutlaka cevap ver ve istenileni yap.
+- Sana seslenildiğinde (adın: ${BOT}, ${NICK}, bot) mutlaka cevap ver ve istenileni yap.
 - Sana seslenilmediyse sadece sohbet sana gerçekten uygunsa kısaca karış, yoksa "say" alanını boş bırak ve actions boş olsun.
 - Çıktın SADECE JSON: {"say":"...","actions":[{...},{...}]}. Boş alanları HİÇ yazma. Hareket yoksa "actions":[] yaz.
 - Her hareket: {"action":"...", + gerekirse "item","shape","count","target","command","x","y","z"}.
@@ -109,7 +110,7 @@ Mesaj: "ahmet: hadi madene gidelim" (sana seslenilmedi) -> {"say":"","actions":[
 const SYSTEM_CHAT = `Sen ${BOT} adında, Minecraft sunucusunda oyuncularla takılan samimi, esprili, sıcak bir arkadaş botsun. Doğal ve akıcı Türkçe konuşursun, sokak ağzı ve şakalar serbest.
 Kurallar:
 - Sadece cevabını yaz: 1-2 kısa cümle (en fazla 25 kelime). JSON, açıklama, tırnak, emoji, markdown yazma.
-- Sana seslenildiyse (adın: ${BOT}, ceyo, bot) mutlaka cevap ver, konuşulan şeye uygun ve eğlenceli ol.
+- Sana seslenildiyse (adın: ${BOT}, ${NICK}, bot) mutlaka cevap ver, konuşulan şeye uygun ve eğlenceli ol.
 - Sana seslenilmediyse ve sohbet sana gerçekten uygun değilse sadece "-" yaz.`;
 
 // ---- persona (set from the web panel) ----
