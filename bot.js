@@ -10,6 +10,7 @@ const { isOwner, sanitizeCommand, summarizeReply } = require("./cmd");
 const { planCraft, toolTierFor, tierRank, bestPickaxeRank, isLog, smeltOutputFor, SMELT } = require("./plan");
 const { trItem, missingFor, askText, classifyReply, gotSome } = require("./need");
 const makeExtra = require("./extra");
+const panel = require("./panel");
 
 const HOST = process.env.MC_HOST || "Oynatrtr.aternos.me";
 const PORT = process.env.MC_PORT ? parseInt(process.env.MC_PORT, 10) : undefined;
@@ -24,7 +25,7 @@ const UNPROMPTED = process.env.UNPROMPTED !== "0";
 const TEST_ACTIONS = process.env.TEST_ACTIONS || "";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const log = (...a) => console.log(new Date().toISOString(), ...a);
+const log = (...a) => { console.log(new Date().toISOString(), ...a); try { panel.push(a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" ")); } catch (_) {} };
 
 // ---------- state ----------
 const ADDR_RE = new RegExp("(" + USERNAME + "|ceyo|\\bbot\\b)", "i");
@@ -987,6 +988,7 @@ function incoming(user, msg) {
   if (seen.size > 200) seen.clear();
   history.push(`${user}: ${String(msg).slice(0, 200)}`);
   if (history.length > 20) history.shift();
+  try { panel.push("CHAT: " + user + ": " + String(msg).slice(0, 200)); } catch (_) {}
   const direct = String(msg).match(DIRECT_RE) || (isOwner(user) ? String(msg).match(LOOSE_RE) : null);
   if (direct) { // "ceyobot /time set day" -> run the command directly (owners only)
     const b = current;
@@ -1243,6 +1245,16 @@ async function runSession() {
 module.exports = { craftItem, mineTask, invCounts, _test: { findPortalSite, incoming, setCurrent: (b) => { current = b; }, cmdReplies, scanBlocks, wanderFor, findInvItem, blockMatcher, queue, setCur: (q) => { curJob = q; }, getNeed: () => need, clearNeed: () => { need = null; }, canAsk, resumeNeed, needLine } };
 
 if (require.main === module) (async () => {
+  panel.start({
+    log,
+    bot: () => current,
+    say,
+    owner: () => require("./cmd").OWNERS[0],
+    status: () => ({ task, guarding, queue: queue.slice(0, 8).map((q) => q.a.action + (q.a.item ? ":" + q.a.item : "") + (q.a.count > 1 ? " x" + q.a.count : "")) }),
+    ask: (text) => incoming(require("./cmd").OWNERS[0], "ceyobot " + text),
+    stop: (b) => stopAll(b),
+    cmd: (b, text) => runCommand(b, text),
+  });
   const w = Date.now();
   warmup().then(() => log("LLM warm-up done in", Math.round((Date.now() - w) / 1000), "s")).catch((e) => log("LLM warm-up failed:", e.message));
   do {

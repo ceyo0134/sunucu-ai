@@ -28,9 +28,15 @@ jobs:
           MODEL_PATTERN: ${{ vars.MODEL_PATTERN || 'Q4_K_M' }}
       - name: Start llama.cpp server
         run: bash start_llm.sh
+      - name: Install cloudflared (panel tunnel)
+        run: |
+          curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          sudo install -m 755 cloudflared /usr/local/bin/cloudflared
       - name: Run bot
         run: node bot.js
         env:
+          PANEL_TOKEN: ${{ secrets.PANEL_TOKEN }}
+          PANEL_TUNNEL: "1"
           ONCE: "1"
           SESSION_HOURS: "5"
           MC_HOST: ${{ vars.MC_HOST || 'Oynatrtr.aternos.me' }}

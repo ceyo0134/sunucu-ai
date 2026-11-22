@@ -86,3 +86,7 @@ Protected blocks (chests, furnaces, beds, signs, spawners ...) are never mined o
 
 ## Model
 The model is chosen with the repository variables `MODEL_REPO` and `MODEL_PATTERN` (Settings > Secrets and variables > Actions > Variables). Currently: `unsloth/gemma-4-E4B-it-GGUF` with `Q4_K_M` (Gemma 4 E4B, good Turkish, about twice as fast as the old 7B). Without the variables the workflow falls back to `bartowski/Qwen2.5-7B-Instruct-GGUF`. `start_llm.sh` starts llama.cpp with `--swa-full --jinja` and retries without them if the image does not know a flag.
+
+## Control panel (web)
+
+Set the secret `PANEL_TOKEN` (at least 12 characters, keep it private). When the **ai** workflow runs, the bot opens a Cloudflare quick tunnel and prints the panel link in the job summary and whispers it to the owner in-game. Open the link and log in with the token: live status and behaviour log, chat, top-down view around the bot, full inventory management (equip, off-hand, armor, eat, drop, move), manual walking/looking, goto, and AI tasks. The link changes on every restart (about every 5 hours).

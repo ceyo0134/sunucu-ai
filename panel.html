@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ceyobot paneli</title>
+<style>
+:root{--bg:#111418;--card:#1b2027;--line:#2a323c;--tx:#e8edf2;--mu:#8b96a3;--ac:#4ade80;--bad:#f87171}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px system-ui,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+nav{display:flex;overflow-x:auto;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:45px;z-index:5}
+nav button{flex:1;background:none;border:0;color:var(--mu);padding:12px 10px;font-size:14px;white-space:nowrap}nav button.on{color:var(--ac);border-bottom:2px solid var(--ac)}
+main{padding:12px;max-width:760px;margin:auto}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+button,input,select{font:inherit}.btn{background:#26303b;color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:10px 12px}.btn.p{background:var(--ac);color:#06210f;border:0;font-weight:600}.btn.d{color:var(--bad)}
+input[type=text],input[type=password],input[type=number]{width:100%;background:#0e1115;color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:11px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.row>*{flex:1}.mu{color:var(--mu);font-size:13px}.bar{height:10px;background:#0e1115;border-radius:6px;overflow:hidden}.bar i{display:block;height:100%}
+.grid{display:grid;grid-template-columns:repeat(9,1fr);gap:4px}.slot{aspect-ratio:1;background:#0e1115;border:1px solid var(--line);border-radius:6px;font-size:9px;line-height:1.1;overflow:hidden;padding:2px;position:relative;word-break:break-all;color:var(--tx)}
+.slot.sel{border-color:var(--ac);box-shadow:0 0 0 1px var(--ac)}.slot b{position:absolute;right:2px;bottom:1px;font-size:11px;color:var(--ac)}.slot.q{border-color:#60a5fa}
+#log{height:52vh;overflow-y:auto;font:13px ui-monospace,monospace}.l{padding:2px 0;border-bottom:1px solid #20262e}.l.say{color:var(--ac)}.l.chat{color:#93c5fd}.l.log{color:var(--mu)}
+canvas{width:100%;image-rendering:pixelated;border-radius:10px;background:#000}.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:260px;margin:auto}.hide{display:none}
+#toast{position:fixed;bottom:calc(14px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#000c;padding:9px 14px;border-radius:20px;font-size:14px}
+</style></head><body>
+<div id="login" style="max-width:380px;margin:18vh auto;padding:16px">
+  <h2>🤖 ceyobot paneli</h2><p class="mu">Giriş için panel tokenini yaz.</p>
+  <input id="tk" type="password" placeholder="Token" autocomplete="current-password">
+  <div class="row"><button class="btn p" id="go">Giriş</button></div><div id="err" class="mu" style="color:var(--bad)"></div>
+</div>
+<div id="app" class="hide">
+<header><b id="title">ceyobot</b><span><span id="conn" class="mu">…</span> <button class="btn" id="out" style="padding:6px 10px">Çıkış</button></span></header>
+<nav id="tabs"><button data-t="st" class="on">Durum</button><button data-t="inv">Envanter</button><button data-t="map">Görüş</button><button data-t="chat">Sohbet/Günlük</button><button data-t="ctl">Kontrol</button></nav>
+<main>
+<section id="st"><div class="card"><div class="mu">Can</div><div class="bar"><i id="hp" style="background:#ef4444"></i></div><div class="mu" style="margin-top:8px">Açlık</div><div class="bar"><i id="fd" style="background:#f59e0b"></i></div></div>
+<div class="card" id="info"></div><div class="card"><b>Şu an ne yapıyor?</b><div id="task" style="margin-top:6px"></div><div class="mu" id="queue"></div><div class="row"><button class="btn d" data-a='{"type":"stop"}'>⏹ Hepsini durdur</button></div></div>
+<div class="card"><b>Yakındakiler</b><div id="near" class="mu" style="margin-top:6px"></div></div></section>
+
+<section id="inv" class="hide"><div class="card"><div class="mu">Zırh (kafa, gövde, bacak, ayak) · Sol el</div><div class="grid" id="g_arm" style="grid-template-columns:repeat(5,1fr)"></div>
+<div class="mu" style="margin-top:10px">Çanta</div><div class="grid" id="g_main"></div><div class="mu" style="margin-top:10px">Hotbar (mavi = elde)</div><div class="grid" id="g_hot"></div></div>
+<div class="card"><div id="selinfo" class="mu">Bir slota dokun.</div>
+<div class="row"><button class="btn" id="i_hand">✋ Ele al</button><button class="btn" id="i_off">🛡 Sol el</button><button class="btn" id="i_eat">🍗 Ye</button><button class="btn" id="i_use">🖱 Kullan</button></div>
+<div class="row"><button class="btn" id="i_head">Kafa</button><button class="btn" id="i_torso">Gövde</button><button class="btn" id="i_legs">Bacak</button><button class="btn" id="i_feet">Ayak</button></div>
+<div class="row"><button class="btn" id="i_move">↔ Taşı (sonra hedef slot)</button><button class="btn d" id="i_d1">At (1)</button><button class="btn d" id="i_dall">At (hepsi)</button></div></div></section>
+
+<section id="map" class="hide"><div class="card"><canvas id="cv" width="500" height="500"></canvas><div class="mu" id="mapinfo">Kuşbakışı: botun etrafındaki 25×25 blok. Yeşil ok = bot, 🔴 oyuncu, 🟠 düşman, 🟡 hayvan, 🔵 eşya.</div></div></section>
+
+<section id="chat" class="hide"><div class="card"><div id="log"></div>
+<div class="row"><input type="text" id="msg" placeholder="Mesaj…" style="flex:3"><button class="btn p" id="sendchat">Sohbete yaz</button></div>
+<div class="row"><button class="btn" id="sendask">🧠 AI'ya görev ver</button><button class="btn" id="sendcmd">/ Komut çalıştır</button></div>
+<label class="mu"><input type="checkbox" id="showlog" checked> Günlüğü (davranış) göster</label></div></section>
+
+<section id="ctl" class="hide"><div class="card"><b>Yürü</b><div class="pad" style="margin-top:8px"><span></span><button class="btn" data-m="f">⬆</button><span></span><button class="btn" data-m="l">⬅</button><button class="btn" data-m="j">⤒ Zıpla</button><button class="btn" data-m="r">➡</button><span></span><button class="btn" data-m="b">⬇</button><button class="btn" data-m="s">Çömel</button></div>
+<div class="row"><button class="btn" data-look="-0.4,0">⟲ Sola bak</button><button class="btn" data-look="0.4,0">⟳ Sağa bak</button><button class="btn" data-look="0,0.3">↑ Yukarı</button><button class="btn" data-look="0,-0.3">↓ Aşağı</button></div></div>
+<div class="card"><b>Git</b><div class="row"><input type="number" id="gx" placeholder="X"><input type="number" id="gy" placeholder="Y"><input type="number" id="gz" placeholder="Z"></div>
+<div class="row"><button class="btn p" id="goto">Koordinata git</button><button class="btn" id="come">Bana gel</button></div></div>
+<div class="card"><b>Hızlı görevler</b><div class="row"><button class="btn" data-ask="bana gel">Bana gel</button><button class="btn" data-ask="beni koru">Koru</button><button class="btn" data-ask="odun topla 10">10 odun</button><button class="btn" data-ask="uyu">Uyu</button><button class="btn" data-ask="iyileş">İyileş</button></div></div></section>
+</main></div><div id="toast" class="hide"></div>
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+let TK=localStorage.getItem("ctk")||"",S=null,sel=null,moving=false,lastEv=0,timers=[];
+const toast=t=>{const e=$("#toast");e.textContent=t;e.classList.remove("hide");clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.add("hide"),2200)};
+async function api(p,body){const r=await fetch(p,{method:body?"POST":"GET",headers:{Authorization:"Bearer "+TK},body:body?JSON.stringify(body):undefined});const j=await r.json();if(r.status===401||r.status===429)throw Object.assign(new Error(j.error),{auth:true});return j}
+async function act(a){try{const j=await api("/api/act",a);toast(j.ok?j.msg:"⚠ "+j.error)}catch(e){toast("⚠ "+e.message)}}
+function login(){TK=$("#tk").value||TK;api("/api/state").then(()=>{localStorage.setItem("ctk",TK);$("#login").classList.add("hide");$("#app").classList.remove("hide");start()}).catch(e=>{$("#err").textContent=e.message})}
+$("#go").onclick=login;$("#tk").onkeydown=e=>{if(e.key==="Enter")login()};
+$("#out").onclick=()=>{localStorage.removeItem("ctk");location.reload()};
+if(TK)login();
+$$("#tabs button").forEach(b=>b.onclick=()=>{$$("#tabs button").forEach(x=>x.classList.toggle("on",x===b));["st","inv","map","chat","ctl"].forEach(t=>$("#"+t).classList.toggle("hide",t!==b.dataset.t))});
+document.addEventListener("click",e=>{const t=e.target.closest("[data-a]");if(t)act(JSON.parse(t.dataset.a));const a=e.target.closest("[data-ask]");if(a)act({type:"ask",text:a.dataset.ask});const m=e.target.closest("[data-m]");if(m)act({type:"move",dir:m.dataset.m,ms:500});const l=e.target.closest("[data-look]");if(l){const[y,p]=l.dataset.look.split(",");act({type:"look",dyaw:+y,dpitch:+p})}});
+$("#sendchat").onclick=()=>{act({type:"chat",text:$("#msg").value});$("#msg").value=""};
+$("#sendask").onclick=()=>{act({type:"ask",text:$("#msg").value});$("#msg").value=""};
+$("#sendcmd").onclick=()=>{act({type:"cmd",text:$("#msg").value});$("#msg").value=""};
+$("#goto").onclick=()=>act({type:"goto",x:$("#gx").value,y:$("#gy").value,z:$("#gz").value});
+$("#come").onclick=()=>act({type:"come"});
+// inventory
+const S_EQ={head:5,torso:6,legs:7,feet:8};
+function slotEl(i){const it=S&&S.inv.find(x=>x.slot===i),d=document.createElement("button");d.className="slot"+(sel===i?" sel":"")+(S&&i===36+S.quick?" q":"");d.innerHTML=it?`${it.name.replace(/_/g," ")}<b>${it.count>1?it.count:""}</b>`:"";d.onclick=()=>pick(i);return d}
+function fill(id,list){const g=$(id);g.replaceChildren(...list.map(slotEl))}
+function renderInv(){fill("#g_arm",[5,6,7,8,45]);fill("#g_main",[...Array(27)].map((_,i)=>9+i));fill("#g_hot",[...Array(9)].map((_,i)=>36+i));
+const it=S&&S.inv.find(x=>x.slot===sel);$("#selinfo").textContent=sel===null?"Bir slota dokun.":it?`Slot ${sel}: ${it.display||it.name} ×${it.count}`:`Slot ${sel}: boş`}
+function pick(i){if(moving&&sel!==null){moving=false;act({type:"swap",from:sel,to:i});sel=null}else sel=i;renderInv()}
+const need=f=>()=>{if(sel===null)return toast("Önce slot seç");f()};
+$("#i_hand").onclick=need(()=>act({type:"equip",slot:sel,dest:"hand"}));$("#i_off").onclick=need(()=>act({type:"equip",slot:sel,dest:"off-hand"}));
+for(const k in S_EQ)$("#i_"+k).onclick=need(()=>act({type:"equip",slot:sel,dest:k}));
+$("#i_eat").onclick=need(()=>act({type:"eat",slot:sel}));$("#i_use").onclick=need(()=>act({type:"use",slot:sel}));
+$("#i_d1").onclick=need(()=>act({type:"drop",slot:sel}));$("#i_dall").onclick=need(()=>act({type:"drop",slot:sel,all:true}));
+$("#i_move").onclick=need(()=>{moving=true;toast("Hedef slota dokun")});
+// state
+function render(){if(!S)return;$("#conn").textContent=S.connected?"🟢 bağlı":"🔴 sunucuda değil";if(!S.connected)return;$("#title").textContent=S.username;
+$("#hp").style.width=(S.health/20*100)+"%";$("#fd").style.width=(S.food/20*100)+"%";
+const t=S.time||0,h=String(Math.floor((t/1000+6)%24)).padStart(2,"0")+":"+String(Math.floor((t%1000)/1000*60)).padStart(2,"0");
+$("#info").innerHTML=`❤ ${Math.round(S.health)}/20 · 🍗 ${S.food}/20<br>📍 ${S.pos.x}, ${S.pos.y}, ${S.pos.z} (${S.dim})<br>🎮 ${S.gm} · 🕒 ${h}${S.raining?" · 🌧":""}<br>✋ ${S.held?S.held.display+" ×"+S.held.count:"boş"}<br>👥 ${S.players.join(", ")}`;
+$("#task").textContent=S.task?`${S.task.name}${S.task.text?" — "+S.task.text:""}`:(S.guarding?"Koruyor: "+S.guarding:"Boşta");
+$("#queue").textContent=S.queue.length?"Sırada: "+S.queue.join(", "):"";
+const mob=n=>n.type==="player"?"🔴":n.type==="hostile"?"🟠":/^item$/i.test(n.name)?"🔵":"🟡";
+$("#near").innerHTML=S.near.filter(n=>Math.hypot(n.dx,n.dz)<16).slice(0,25).map(n=>`${mob(n)} ${n.name} (${Math.round(Math.hypot(n.dx,n.dz))} blok)`).join("<br>")||"Kimse yok";renderInv()}
+const COL=[[/water/,"#2563eb"],[/lava/,"#f97316"],[/grass|fern|moss/,"#4d9a3a"],[/leaves/,"#2f6b2a"],[/sand/,"#e0d28a"],[/snow|ice/,"#e8f1f5"],[/log|wood|plank/,"#8a6035"],[/dirt|path|farmland/,"#7a5a3b"],[/stone|ore|deepslate|andesite|diorite|granite|cobble/,"#7d7d7d"],[/netherrack|nether/,"#7a2a2a"],[/air/,"#000"]];
+const colOf=n=>{for(const[r,c]of COL)if(r.test(n))return c;let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))%360;return`hsl(${h},35%,45%)`};
+async function drawMap(){if($("#map").classList.contains("hide"))return;const m=await api("/api/map");if(m.error||!S||!S.connected)return;const c=$("#cv"),x=c.getContext("2d"),n=m.R*2+1,s=c.width/n;
+m.grid.forEach((v,i)=>{x.fillStyle=colOf(m.names[v]);x.fillRect((i%n)*s,Math.floor(i/n)*s,s+.5,s+.5)});
+for(const e of S.near){const px=(m.R+e.dx+.5)*s,py=(m.R+e.dz+.5)*s;if(px<0||py<0||px>c.width||py>c.height)continue;x.fillStyle=e.type==="player"?"#ef4444":e.type==="hostile"?"#fb923c":/^item$/i.test(e.name)?"#38bdf8":"#facc15";x.beginPath();x.arc(px,py,e.type==="player"?s*.45:s*.3,0,7);x.fill()}
+x.save();x.translate((m.R+.5)*s,(m.R+.5)*s);x.rotate(-S.yaw);x.fillStyle="#4ade80";x.strokeStyle="#000";x.beginPath();x.moveTo(0,-s*.8);x.lineTo(s*.5,s*.5);x.lineTo(-s*.5,s*.5);x.closePath();x.fill();x.stroke();x.restore()}
+function addEv(e){const d=document.createElement("div");d.className="l "+e.kind;d.dataset.k=e.kind;const t=new Date(e.t).toLocaleTimeString("tr",{hour12:false});d.textContent=`${t} ${e.kind==="say"?"🤖 ":e.kind==="chat"?"💬 ":""}${e.text}`;if(e.kind==="log"&&!$("#showlog").checked)d.classList.add("hide");$("#log").append(d)}
+$("#showlog").onchange=()=>$$("#log .log").forEach(d=>d.classList.toggle("hide",!$("#showlog").checked));
+async function poll(){try{S=await api("/api/state");render()}catch(e){if(e.auth)return stopAll()}}
+async function evs(){try{const l=await api("/api/events?since="+lastEv),b=$("#log"),bottom=b.scrollHeight-b.scrollTop-b.clientHeight<60;l.forEach(e=>{addEv(e);lastEv=e.id});while(b.children.length>400)b.firstChild.remove();if(bottom)b.scrollTop=b.scrollHeight}catch(_){}}
+function stopAll(){timers.forEach(clearInterval);localStorage.removeItem("ctk");location.reload()}
+function start(){poll();evs();timers=[setInterval(poll,1200),setInterval(evs,1500),setInterval(()=>drawMap().catch(()=>{}),2000)]}
+</script></body></html>
