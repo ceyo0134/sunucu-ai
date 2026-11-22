@@ -21,11 +21,24 @@ jobs:
           python-version: "3.12"
       - run: npm ci
       - run: pip install huggingface_hub
+      - name: Restore model cache
+        id: mc
+        uses: actions/cache/restore@v4
+        with:
+          path: models
+          key: model-${{ vars.MODEL_REPO || 'bartowski/Qwen2.5-7B-Instruct-GGUF' }}-${{ vars.MODEL_PATTERN || 'Q4_K_M' }}
       - name: Download model
+        if: steps.mc.outputs.cache-hit != 'true'
         run: python3 get_model.py
         env:
           MODEL_REPO: ${{ vars.MODEL_REPO || 'bartowski/Qwen2.5-7B-Instruct-GGUF' }}
           MODEL_PATTERN: ${{ vars.MODEL_PATTERN || 'Q4_K_M' }}
+      - name: Save model cache (right after download, so it survives cancels)
+        if: steps.mc.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: models
+          key: model-${{ vars.MODEL_REPO || 'bartowski/Qwen2.5-7B-Instruct-GGUF' }}-${{ vars.MODEL_PATTERN || 'Q4_K_M' }}
       - name: Start llama.cpp server
         run: bash start_llm.sh
       - name: Install cloudflared (panel tunnel)
