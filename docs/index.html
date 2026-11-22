@@ -65,9 +65,9 @@ let TK=localStorage.getItem("ctk")||"",S=null,sel=null,moving=false,lastEv=0,tim
 const toast=t=>{const e=$("#toast");e.textContent=t;e.classList.remove("hide");clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.add("hide"),2200)};
 const PAGES=/github\.io$/.test(location.hostname);let BASE="";
 const b64=x=>Uint8Array.from(atob(x),c=>c.charCodeAt(0));
-async function resolve(){if(resolve.err&&Date.now()-resolve.t<30000)throw new Error(resolve.err);resolve.t=Date.now();resolve.err="";
+async function resolve(){if(resolve.err&&resolve.k===TK&&Date.now()-resolve.t<30000)throw new Error(resolve.err);resolve.t=Date.now();resolve.k=TK;resolve.err="";
 const o=location.hostname.split(".")[0],rp=location.pathname.split("/")[1];
-const r=await fetch(`https://api.github.com/repos/${o}/${rp}/contents/panel-url.json?ref=panel-data`);if(!r.ok){resolve.err="Bot henüz bağlanmadı";throw new Error(resolve.err)}
+const r=await fetch(`https://api.github.com/repos/${o}/${rp}/contents/panel-url.json?ref=panel-data&_=${Date.now()}`,{cache:"no-store"});if(!r.ok){resolve.err="Bot henüz bağlanmadı";throw new Error(resolve.err)}
 const f=JSON.parse(atob((await r.json()).content.replace(/\n/g,"")));
 try{const km=await crypto.subtle.importKey("raw",new TextEncoder().encode(TK),"PBKDF2",false,["deriveKey"]);
 const k=await crypto.subtle.deriveKey({name:"PBKDF2",salt:b64(f.s),iterations:100000,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,["decrypt"]);
@@ -78,7 +78,7 @@ async function api(p,body){if(PAGES&&!BASE)await resolve();let x;
 try{x=await raw(p,body)}catch(e){if(!PAGES)throw e;BASE="";try{await resolve();x=await raw(p,body)}catch(e2){BASE="";throw new Error(e2.message&&!/JSON|fetch/i.test(e2.message)?e2.message:"Bot şu an kapalı görünüyor")}}
 if(x.r.status===401||x.r.status===429)throw Object.assign(new Error(x.j.error),{auth:true});return x.j}
 async function act(a){try{const j=await api("/api/act",a);toast(j.ok?j.msg:"⚠ "+j.error)}catch(e){toast("⚠ "+e.message)}}
-function login(){TK=$("#tk").value||TK;api("/api/state").then(()=>{localStorage.setItem("ctk",TK);$("#login").classList.add("hide");$("#app").classList.remove("hide");start()}).catch(e=>{$("#err").textContent=e.message})}
+function login(){TK=$("#tk").value||TK;api("/api/state").then(()=>{localStorage.setItem("ctk",TK);$("#login").classList.add("hide");$("#app").classList.remove("hide");start()}).catch(e=>{$("#err").textContent=e.message;localStorage.removeItem("ctk")})}
 $("#go").onclick=login;$("#tk").onkeydown=e=>{if(e.key==="Enter")login()};
 $("#out").onclick=()=>{localStorage.removeItem("ctk");location.reload()};
 if(TK)login();
