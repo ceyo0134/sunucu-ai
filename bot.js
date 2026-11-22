@@ -13,7 +13,7 @@ const makeExtra = require("./extra");
 const panel = require("./panel");
 const { parseReflex } = require("./reflex");
 
-const HOST = process.env.MC_HOST || "Oynatrtr.aternos.me";
+const HOST = process.env.MC_HOST || "ceyo0134.aternos.me";
 const PORT = process.env.MC_PORT ? parseInt(process.env.MC_PORT, 10) : undefined;
 const USERNAME = process.env.MC_USERNAME || "ceyobot";
 const VERSION = process.env.MC_VERSION || undefined; // auto-detected when empty

@@ -32,8 +32,8 @@ jobs:
           ONCE: "1"
           SESSION_HOURS: "0.15"
           TEST_ACTIONS: ${{ vars.TEST_ACTIONS || 'craft:wooden_pickaxe:1;mine:auto:3;tunnel:6;armor;pickup;build:tower:auto:2' }}
-          MC_HOST: ${{ vars.MC_HOST || 'Oynatrtr.aternos.me' }}
-          MC_PORT: ${{ vars.MC_PORT || '46490' }}
+          MC_HOST: ${{ vars.MC_HOST || 'ceyo0134.aternos.me' }}
+          MC_PORT: ${{ vars.MC_PORT || '' }}
           MC_USERNAME: ${{ vars.MC_USERNAME || 'ceyobot' }}
           MC_VERSION: ${{ vars.MC_VERSION }}
           MC_PASSWORD: ${{ secrets.MC_PASSWORD }}
