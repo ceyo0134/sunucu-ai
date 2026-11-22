@@ -20,7 +20,7 @@ canvas{width:100%;image-rendering:pixelated;border-radius:10px;background:#000}.
 #toast{position:fixed;bottom:calc(14px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#000c;padding:9px 14px;border-radius:20px;font-size:14px}
 </style></head><body>
 <div id="login" style="max-width:380px;margin:18vh auto;padding:16px">
-  <h2>🤖 ceyobot paneli</h2><p class="mu">Giriş için panel tokenini yaz.</p>
+  <h2>🤖 ceyobot paneli</h2><p class="mu">Giriş için panel tokenini yaz. <span style="opacity:.6">(sürüm 3)</span></p>
   <input id="tk" type="password" placeholder="Token" autocomplete="current-password">
   <div class="row"><button class="btn p" id="go">Giriş</button></div><div id="err" class="mu" style="color:var(--bad)"></div>
 </div>
@@ -72,13 +72,13 @@ const f=JSON.parse(atob((await r.json()).content.replace(/\n/g,"")));
 try{const km=await crypto.subtle.importKey("raw",new TextEncoder().encode(TK),"PBKDF2",false,["deriveKey"]);
 const k=await crypto.subtle.deriveKey({name:"PBKDF2",salt:b64(f.s),iterations:100000,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,["decrypt"]);
 BASE=new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:b64(f.i)},k,b64(f.c)))}
-catch(_){resolve.err="Token yanlış (ya da bot yeni token ile henüz başlamadı)";throw new Error(resolve.err)}}
+catch(_){resolve.err="Token yanlış (ya da bot yeni token ile henüz başlamadı) · girdiğin: "+TK.length+" karakter, beklenen: 40";throw new Error(resolve.err)}}
 async function raw(p,body){const r=await fetch(BASE+p,{method:body?"POST":"GET",headers:{Authorization:"Bearer "+TK},body:body?JSON.stringify(body):undefined});return{r,j:await r.json()}}
 async function api(p,body){if(PAGES&&!BASE)await resolve();let x;
 try{x=await raw(p,body)}catch(e){if(!PAGES)throw e;BASE="";try{await resolve();x=await raw(p,body)}catch(e2){BASE="";throw new Error(e2.message&&!/JSON|fetch/i.test(e2.message)?e2.message:"Bot şu an kapalı görünüyor")}}
 if(x.r.status===401||x.r.status===429)throw Object.assign(new Error(x.j.error),{auth:true});return x.j}
 async function act(a){try{const j=await api("/api/act",a);toast(j.ok?j.msg:"⚠ "+j.error)}catch(e){toast("⚠ "+e.message)}}
-function login(){TK=$("#tk").value||TK;api("/api/state").then(()=>{localStorage.setItem("ctk",TK);$("#login").classList.add("hide");$("#app").classList.remove("hide");start()}).catch(e=>{$("#err").textContent=e.message;localStorage.removeItem("ctk")})}
+function login(){TK=($("#tk").value||TK).trim();api("/api/state").then(()=>{localStorage.setItem("ctk",TK);$("#login").classList.add("hide");$("#app").classList.remove("hide");start()}).catch(e=>{$("#err").textContent=e.message;localStorage.removeItem("ctk")})}
 $("#go").onclick=login;$("#tk").onkeydown=e=>{if(e.key==="Enter")login()};
 $("#out").onclick=()=>{localStorage.removeItem("ctk");location.reload()};
 if(TK)login();
