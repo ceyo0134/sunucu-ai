@@ -49,8 +49,17 @@ module.exports = function makeExtra(ctx) {
     return best;
   }
 
+  // Totem of Undying goes in the off-hand (takes priority over the shield)
+  async function equipTotem(bot) {
+    const off = bot.inventory.slots[45];
+    if (off && off.name === "totem_of_undying") return 0;
+    const totem = bot.inventory.items().find((i) => i.name === "totem_of_undying");
+    if (!totem) return 0;
+    try { await bot.equip(totem, "off-hand"); return 1; } catch (_) { return 0; }
+  }
+
   async function equipBest(bot) {
-    let changed = 0;
+    let changed = await equipTotem(bot);
     for (const [slot, suffix] of Object.entries(ARMOR_PARTS)) {
       let cur = null;
       try { cur = bot.inventory.slots[bot.getEquipmentDestSlot(slot)]; } catch (_) {}
@@ -599,7 +608,7 @@ module.exports = function makeExtra(ctx) {
   }
 
   return {
-    bestWeapon, equipBest, armorTask, collectDrops, pickupTask, huntTask, tunnelTask, digDownTask, exploreFor,
+    bestWeapon, equipBest, equipTotem, armorTask, collectDrops, pickupTask, huntTask, tunnelTask, digDownTask, exploreFor,
     smeltStep, farmTask, fishTask, storeTask, takeTask, tradeTask, enchantTask, rideTask,
     // exposed for tests
     _t: { dirFromYaw, cropAge, armorRank, matches, SMELT },

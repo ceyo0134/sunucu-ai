@@ -1063,6 +1063,13 @@ function startIdle(bot, timers) {
   timers.push(setInterval(() => {
     if (!armoring) { armoring = true; X.equipBest(bot).catch(() => {}).finally(() => { armoring = false; }); }
   }, 10000));
+  // keep a Totem of Undying in the off-hand (re-equip fast after one pops or one is picked up)
+  let totemBusy = false;
+  timers.push(setInterval(() => {
+    if (totemBusy) return;
+    totemBusy = true;
+    X.equipTotem(bot).catch(() => {}).finally(() => { totemBusy = false; });
+  }, 1000));
   // waiting for the owner: continue as soon as the wanted items show up in the inventory (given, dropped or /give)
   timers.push(setInterval(() => {
     const n = need;
