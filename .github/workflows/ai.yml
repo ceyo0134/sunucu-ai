@@ -67,6 +67,7 @@ jobs:
           MC_USERNAME: ${{ vars.MC_USERNAME || 'ceyobot' }}
           MC_VERSION: ${{ vars.MC_VERSION }}
           MC_PASSWORD: ${{ secrets.MC_PASSWORD }}
+          IDENTITY_TOKEN: ${{ secrets.IDENTITY_TOKEN }}
       - name: Wait 10-20s then start the next round
         if: ${{ !cancelled() }}
         env:

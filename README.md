@@ -99,3 +99,7 @@ Set the secret `PANEL_TOKEN` (at least 12 characters, keep it private). When the
 Panelde **Kişilik** sekmesine botun nasıl biri olacağını yaz (örn. "çok akıllı, kız gibi tatlı ve tipli konuş"), **Kaydet**'e bas; bot yazdığın gibi konuşmaya başlar.
 Hazır kişilikler de var; boş kaydedersen normale döner. Kayıt `panel-data` branch'indeki `persona.json` dosyasına **panel tokeniyle şifreli** yazılır, bot yeniden başlasa da kalır.
 Kişilik sadece konuşma tarzını değiştirir; JSON formatı ve görev kararları aynı kalır. Maksimum 600 karakter.
+
+## Identity lock
+
+The bot only says "ceyo made me / I am Ceyoslen 5B" when the secret `IDENTITY_TOKEN` of the original deployment is present. A copy of this repo (fork, swapped model, other owner) does not have it, so its bot says it does not know who made it.

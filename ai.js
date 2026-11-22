@@ -19,6 +19,11 @@ const THINK_CHAT = process.env.THINK_CHAT === "1";
 function stripThink(t) {
   return String(t || "").replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<think>[\s\S]*$/i, "").replace(/<\|channel>thought[\s\S]*?<channel\|>/gi, "");
 }
+// Identity ("made by ceyo") is only switched on in the original deployment: it needs the secret IDENTITY_TOKEN, checked against this hash.
+// A copy of the repo (a fork, another model, another owner) does not have the secret, so its bot never claims ceyo made it.
+const IDENT_OK = require("crypto").createHash("sha256").update(process.env.IDENTITY_TOKEN || "").digest("hex") === "49f7c54fc2658a3734f18873b66d05fd2e6c7cea7f0054e5276da4314bb2fece";
+const IDENT_BIG = IDENT_OK ? `- KİMLİĞİN: Yapay zeka modelinin adı "Ceyoslen 5B", seni ceyo (ceyo0134) yaptı. Biri seni kimin yaptığını sorarsa ya da modelinin/yapay zekanın adını sorarsa bunu kendi cümlenle, o anki ruh haline göre söyle (hazır kalıp tekrar etme: \"ceyo yaptı\", \"beni ceyo kodladı\", \"adım Ceyoslen 5B, yapımcım ceyo\" gibi farklı şekillerde). Başka bir model/şirket adı söyleme. Sorulmadıkça kimliğinden bahsetme.` : "- KİMLİĞİN: Seni kimin yaptığını ya da modelinin adını bilmiyorsun. Sorulursa bilmediğini söyle, uydurma.";
+const IDENT_CHAT = IDENT_OK ? `- KİMLİĞİN: Yapay zeka modelinin adı "Ceyoslen 5B", seni ceyo (ceyo0134) yaptı. Kimin yaptığı ya da model adı sorulursa bunu her seferinde kendi cümlenle, doğal şekilde söyle (hazır kalıp yok). Başka model/şirket adı söyleme. Sorulmadıkça bahsetme.` : "- KİMLİĞİN: Seni kimin yaptığını ya da modelinin adını bilmiyorsun. Sorulursa bilmediğini söyle, uydurma.";
 const MAX_ACTIONS = 40; // per message; more can be given in later messages (the queue holds 1000)
 
 const SYSTEM = `Sen ${BOT} adında, Minecraft sunucusunda oyuncularla birlikte takılan samimi, esprili ve yardımsever bir arkadaş botsun. Türkçe konuşursun.
@@ -27,7 +32,7 @@ Kurallar:
 - Cevapların çok kısa olsun: en fazla 1-2 kısa cümle, arkadaş gibi konuş.
 - Sana seslenildiğinde (adın: ${BOT}, ${NICK}, bot) mutlaka cevap ver ve istenileni yap.
 - Sana seslenilmediyse sadece sohbet sana gerçekten uygunsa kısaca karış, yoksa "say" alanını boş bırak ve actions boş olsun.
-- KİMLİĞİN: Yapay zeka modelinin adı "Ceyoslen 5B", seni ceyo (ceyo0134) yaptı. Biri seni kimin yaptığını sorarsa ya da modelinin/yapay zekanın adını sorarsa bunu kendi cümlenle, o anki ruh haline göre söyle (hazır kalıp tekrar etme: \"ceyo yaptı\", \"beni ceyo kodladı\", \"adım Ceyoslen 5B, yapımcım ceyo\" gibi farklı şekillerde). Başka bir model/şirket adı söyleme. Sorulmadıkça kimliğinden bahsetme.
+${IDENT_BIG}
 - Çıktın SADECE JSON: {"say":"...","actions":[{...},{...}]}. Boş alanları HİÇ yazma. Hareket yoksa "actions":[] yaz.
 - Her hareket: {"action":"...", + gerekirse "item","shape","count","target","command","x","y","z"}.
 - Hareketler:
@@ -112,7 +117,7 @@ const SYSTEM_CHAT = `Sen ${BOT} adında, Minecraft sunucusunda oyuncularla takı
 Kurallar:
 - Sadece cevabını yaz: 1-2 kısa cümle (en fazla 25 kelime). JSON, açıklama, tırnak, emoji, markdown yazma.
 - Sana seslenildiyse (adın: ${BOT}, ${NICK}, bot) mutlaka cevap ver, konuşulan şeye uygun ve eğlenceli ol.
-- KİMLİĞİN: Yapay zeka modelinin adı "Ceyoslen 5B", seni ceyo (ceyo0134) yaptı. Kimin yaptığı ya da model adı sorulursa bunu her seferinde kendi cümlenle, doğal şekilde söyle (hazır kalıp yok). Başka model/şirket adı söyleme. Sorulmadıkça bahsetme.
+${IDENT_CHAT}
 - Sana seslenilmediyse ve sohbet sana gerçekten uygun değilse sadece "-" yaz.`;
 
 // ---- persona (set from the web panel) ----
