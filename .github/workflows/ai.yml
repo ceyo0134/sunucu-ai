@@ -6,7 +6,7 @@ concurrency:
   cancel-in-progress: false
 permissions:
   actions: write
-  contents: read
+  contents: write
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -36,6 +36,7 @@ jobs:
         run: node bot.js
         env:
           PANEL_TOKEN: ${{ secrets.PANEL_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PANEL_TUNNEL: "1"
           ONCE: "1"
           SESSION_HOURS: "5"

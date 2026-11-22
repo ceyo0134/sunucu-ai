@@ -55,7 +55,20 @@ canvas{width:100%;image-rendering:pixelated;border-radius:10px;background:#000}.
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 let TK=localStorage.getItem("ctk")||"",S=null,sel=null,moving=false,lastEv=0,timers=[];
 const toast=t=>{const e=$("#toast");e.textContent=t;e.classList.remove("hide");clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.add("hide"),2200)};
-async function api(p,body){const r=await fetch(p,{method:body?"POST":"GET",headers:{Authorization:"Bearer "+TK},body:body?JSON.stringify(body):undefined});const j=await r.json();if(r.status===401||r.status===429)throw Object.assign(new Error(j.error),{auth:true});return j}
+const PAGES=/github\.io$/.test(location.hostname);let BASE="";
+const b64=x=>Uint8Array.from(atob(x),c=>c.charCodeAt(0));
+async function resolve(){if(resolve.err&&Date.now()-resolve.t<30000)throw new Error(resolve.err);resolve.t=Date.now();resolve.err="";
+const o=location.hostname.split(".")[0],rp=location.pathname.split("/")[1];
+const r=await fetch(`https://api.github.com/repos/${o}/${rp}/contents/panel-url.json?ref=panel-data`);if(!r.ok){resolve.err="Bot henüz bağlanmadı";throw new Error(resolve.err)}
+const f=JSON.parse(atob((await r.json()).content.replace(/\n/g,"")));
+try{const km=await crypto.subtle.importKey("raw",new TextEncoder().encode(TK),"PBKDF2",false,["deriveKey"]);
+const k=await crypto.subtle.deriveKey({name:"PBKDF2",salt:b64(f.s),iterations:100000,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,["decrypt"]);
+BASE=new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:b64(f.i)},k,b64(f.c)))}
+catch(_){resolve.err="Token yanlış (ya da bot yeni token ile henüz başlamadı)";throw new Error(resolve.err)}}
+async function raw(p,body){const r=await fetch(BASE+p,{method:body?"POST":"GET",headers:{Authorization:"Bearer "+TK},body:body?JSON.stringify(body):undefined});return{r,j:await r.json()}}
+async function api(p,body){if(PAGES&&!BASE)await resolve();let x;
+try{x=await raw(p,body)}catch(e){if(!PAGES)throw e;BASE="";try{await resolve();x=await raw(p,body)}catch(e2){BASE="";throw new Error(e2.message&&!/JSON|fetch/i.test(e2.message)?e2.message:"Bot şu an kapalı görünüyor")}}
+if(x.r.status===401||x.r.status===429)throw Object.assign(new Error(x.j.error),{auth:true});return x.j}
 async function act(a){try{const j=await api("/api/act",a);toast(j.ok?j.msg:"⚠ "+j.error)}catch(e){toast("⚠ "+e.message)}}
 function login(){TK=$("#tk").value||TK;api("/api/state").then(()=>{localStorage.setItem("ctk",TK);$("#login").classList.add("hide");$("#app").classList.remove("hide");start()}).catch(e=>{$("#err").textContent=e.message})}
 $("#go").onclick=login;$("#tk").onkeydown=e=>{if(e.key==="Enter")login()};
@@ -98,7 +111,7 @@ for(const e of S.near){const px=(m.R+e.dx+.5)*s,py=(m.R+e.dz+.5)*s;if(px<0||py<0
 x.save();x.translate((m.R+.5)*s,(m.R+.5)*s);x.rotate(-S.yaw);x.fillStyle="#4ade80";x.strokeStyle="#000";x.beginPath();x.moveTo(0,-s*.8);x.lineTo(s*.5,s*.5);x.lineTo(-s*.5,s*.5);x.closePath();x.fill();x.stroke();x.restore()}
 function addEv(e){const d=document.createElement("div");d.className="l "+e.kind;d.dataset.k=e.kind;const t=new Date(e.t).toLocaleTimeString("tr",{hour12:false});d.textContent=`${t} ${e.kind==="say"?"🤖 ":e.kind==="chat"?"💬 ":""}${e.text}`;if(e.kind==="log"&&!$("#showlog").checked)d.classList.add("hide");$("#log").append(d)}
 $("#showlog").onchange=()=>$$("#log .log").forEach(d=>d.classList.toggle("hide",!$("#showlog").checked));
-async function poll(){try{S=await api("/api/state");render()}catch(e){if(e.auth)return stopAll()}}
+async function poll(){try{S=await api("/api/state");render()}catch(e){if(e.auth)return stopAll();$("#conn").textContent="🔴 "+e.message}}
 async function evs(){try{const l=await api("/api/events?since="+lastEv),b=$("#log"),bottom=b.scrollHeight-b.scrollTop-b.clientHeight<60;l.forEach(e=>{addEv(e);lastEv=e.id});while(b.children.length>400)b.firstChild.remove();if(bottom)b.scrollTop=b.scrollHeight}catch(_){}}
 function stopAll(){timers.forEach(clearInterval);localStorage.removeItem("ctk");location.reload()}
 function start(){poll();evs();timers=[setInterval(poll,1200),setInterval(evs,1500),setInterval(()=>drawMap().catch(()=>{}),2000)]}

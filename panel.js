@@ -9,6 +9,10 @@ const { goals } = require("mineflayer-pathfinder");
 
 const TOKEN = process.env.PANEL_TOKEN || "";
 const PORT = parseInt(process.env.PANEL_PORT || "8787", 10);
+const OWNER = (process.env.GITHUB_REPOSITORY_OWNER || "").toLowerCase();
+const REPO = process.env.GITHUB_REPOSITORY || "";
+const ORIGIN = process.env.PANEL_ORIGIN || (OWNER ? `https://${OWNER}.github.io` : "");
+const SITE = process.env.PANEL_SITE || (OWNER && REPO ? `https://${OWNER}.github.io/${REPO.split("/")[1]}/` : "");
 const ring = []; // {id, t, kind, text}
 let nextId = 1, url = "", ctx = null;
 
@@ -82,10 +86,12 @@ async function act(bot, a) {
 }
 
 function server() {
-  const html = fs.readFileSync(path.join(__dirname, "panel.html"));
+  const html = fs.readFileSync(path.join(__dirname, "docs", "index.html"));
   return http.createServer(async (req, res) => {
     const ip = String(req.headers["cf-connecting-ip"] || req.socket.remoteAddress);
     const send = (code, obj, type) => { res.writeHead(code, { "Content-Type": type || "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" }); res.end(type ? obj : JSON.stringify(obj)); };
+    if (ORIGIN) { res.setHeader("Access-Control-Allow-Origin", ORIGIN); res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type"); res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS"); res.setHeader("Vary", "Origin"); }
+    if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
     const u = new URL(req.url, "http://x");
     if (u.pathname === "/" || u.pathname === "/index.html") return send(200, html, "text/html; charset=utf-8");
     if (!u.pathname.startsWith("/api/")) return send(404, { error: "yok" });
@@ -108,6 +114,29 @@ function server() {
   });
 }
 
+// The tunnel address changes every run: publish it AES-encrypted with the panel token (key = PBKDF2(token)) to the
+// `panel-data` branch, so the GitHub Pages site can find it, and nobody without the token can read it.
+async function publishUrl(log) {
+  const gh = process.env.GH_TOKEN;
+  if (!gh || !REPO || !url) return;
+  const salt = crypto.randomBytes(16), iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv("aes-256-gcm", crypto.pbkdf2Sync(TOKEN, salt, 100000, 32, "sha256"), iv);
+  const ct = Buffer.concat([c.update(url, "utf8"), c.final(), c.getAuthTag()]);
+  const content = Buffer.from(JSON.stringify({ s: salt.toString("base64"), i: iv.toString("base64"), c: ct.toString("base64") })).toString("base64");
+  const api = `https://api.github.com/repos/${REPO}/contents/panel-url.json`;
+  const h = { Authorization: "Bearer " + gh, Accept: "application/vnd.github+json", "User-Agent": "ceyobot" };
+  for (let n = 0; n < 4; n++) {
+    try {
+      const g = await fetch(api + "?ref=panel-data", { headers: h });
+      const sha = g.ok ? (await g.json()).sha : undefined;
+      const r = await fetch(api, { method: "PUT", headers: h, body: JSON.stringify({ message: "panel url", content, branch: "panel-data", sha }) });
+      if (r.ok) { log("Panel URL published (encrypted) ->", SITE); return; }
+      log("Panel URL publish failed:", r.status);
+    } catch (e) { log("Panel URL publish error:", e.message); }
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+}
+
 function startTunnel(log) {
   let p;
   try { p = spawn("cloudflared", ["tunnel", "--no-autoupdate", "--url", `http://127.0.0.1:${PORT}`], { stdio: ["ignore", "pipe", "pipe"] }); }
@@ -117,8 +146,9 @@ function startTunnel(log) {
     const m = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/.exec(String(d));
     if (m && !url) {
       url = m[0];
-      log("PANEL URL:", url);
-      try { if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ceyobot paneli\n${url}\n`); } catch (_) {}
+      log("PANEL tunnel up:", SITE || url);
+      try { if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ceyobot paneli\n${SITE || url}\n`); } catch (_) {}
+      publishUrl(log);
     }
   };
   p.stdout.on("data", scan); p.stderr.on("data", scan);
@@ -132,7 +162,7 @@ function announce() {
     const bot = ctx.bot();
     if (!url || !bot || !bot.entity || bot === last) return;
     last = bot;
-    try { bot.chat(`/msg ${ctx.owner()} Panel: ${url}`); } catch (_) {}
+    try { bot.chat(`/msg ${ctx.owner()} Panel: ${SITE || url}`); } catch (_) {}
   }, 20000);
 }
 
