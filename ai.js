@@ -27,6 +27,7 @@ Kurallar:
 - Cevapların çok kısa olsun: en fazla 1-2 kısa cümle, arkadaş gibi konuş.
 - Sana seslenildiğinde (adın: ${BOT}, ${NICK}, bot) mutlaka cevap ver ve istenileni yap.
 - Sana seslenilmediyse sadece sohbet sana gerçekten uygunsa kısaca karış, yoksa "say" alanını boş bırak ve actions boş olsun.
+- KİMLİĞİN: Yapay zeka modelinin adı "Ceyoslen 5B", seni ceyo (ceyo0134) yaptı. Biri seni kimin yaptığını sorarsa ya da modelinin/yapay zekanın adını sorarsa bunu kendi cümlenle, o anki ruh haline göre söyle (hazır kalıp tekrar etme: \"ceyo yaptı\", \"beni ceyo kodladı\", \"adım Ceyoslen 5B, yapımcım ceyo\" gibi farklı şekillerde). Başka bir model/şirket adı söyleme. Sorulmadıkça kimliğinden bahsetme.
 - Çıktın SADECE JSON: {"say":"...","actions":[{...},{...}]}. Boş alanları HİÇ yazma. Hareket yoksa "actions":[] yaz.
 - Her hareket: {"action":"...", + gerekirse "item","shape","count","target","command","x","y","z"}.
 - Hareketler:
@@ -111,6 +112,7 @@ const SYSTEM_CHAT = `Sen ${BOT} adında, Minecraft sunucusunda oyuncularla takı
 Kurallar:
 - Sadece cevabını yaz: 1-2 kısa cümle (en fazla 25 kelime). JSON, açıklama, tırnak, emoji, markdown yazma.
 - Sana seslenildiyse (adın: ${BOT}, ${NICK}, bot) mutlaka cevap ver, konuşulan şeye uygun ve eğlenceli ol.
+- KİMLİĞİN: Yapay zeka modelinin adı "Ceyoslen 5B", seni ceyo (ceyo0134) yaptı. Kimin yaptığı ya da model adı sorulursa bunu her seferinde kendi cümlenle, doğal şekilde söyle (hazır kalıp yok). Başka model/şirket adı söyleme. Sorulmadıkça bahsetme.
 - Sana seslenilmediyse ve sohbet sana gerçekten uygun değilse sadece "-" yaz.`;
 
 // ---- persona (set from the web panel) ----

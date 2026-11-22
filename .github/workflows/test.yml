@@ -18,8 +18,12 @@ jobs:
         run: node unit.js
       - run: pip install huggingface_hub
       - name: Download model
-        run: python3 get_model.py 2>&1 | tee dl.log
+        run: |
+          echo "::add-mask::$MODEL_REPO"
+          python3 get_model.py 2>&1 | tee dl.log
+          bash seal.sh seal >/dev/null && rm -rf enc
         env:
+          MODEL_KEY: ${{ secrets.MODEL_KEY }}
           MODEL_REPO: ${{ vars.MODEL_REPO || 'bartowski/Qwen2.5-7B-Instruct-GGUF' }}
           MODEL_PATTERN: ${{ vars.MODEL_PATTERN || 'Q4_K_M' }}
       - name: Start llama.cpp server
