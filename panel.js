@@ -68,6 +68,7 @@ async function act(bot, a) {
   const item = (slot) => { const it = bot.inventory.slots[slot]; if (!it) throw new Error("Slot boş"); return it; };
   switch (a.type) {
     case "chat": need(); ctx.say(bot, String(a.text || "")); return "ok";
+    case "persona": { const t = ctx.setPersona(String(a.text || "")); const ok = await savePersona(t); push("PANEL: kişilik " + (t ? "→ " + t.slice(0, 80) : "sıfırlandı")); return ok ? (t ? "Kişilik kaydedildi, artık böyle konuşacak" : "Kişilik sıfırlandı") : "Aktif oldu ama kaydedilemedi (sonraki turda gider)"; }
     case "ask": ctx.ask(String(a.text || "").slice(0, 300)); return "AI'ya iletildi";
     case "cmd": need(); { const r = await ctx.cmd(bot, String(a.text || "")); return r && r.ok === false ? "Reddedildi: " + r.reason : "Komut gönderildi"; }
     case "stop": need(); ctx.stop(bot); return "Durduruldu";
@@ -102,6 +103,7 @@ function server() {
       const bot = ctx.bot();
       if (u.pathname === "/api/state") return send(200, state(bot));
       if (u.pathname === "/api/map") return send(200, mapOf(bot) || { error: "bot yok" });
+      if (u.pathname === "/api/persona") return send(200, { text: ctx.getPersona(), max: ctx.maxPersona });
       if (u.pathname === "/api/events") { const since = +u.searchParams.get("since") || 0; return send(200, ring.filter((e) => e.id > since)); }
       if (u.pathname === "/api/act" && req.method === "POST") {
         let body = ""; for await (const c of req) { body += c; if (body.length > 4000) break; }
@@ -135,6 +137,56 @@ async function publishUrl(log) {
     } catch (e) { log("Panel URL publish error:", e.message); }
     await new Promise((r) => setTimeout(r, 5000));
   }
+}
+
+// ---- persona storage ----
+// The bot runs in short GitHub Actions rounds, so the persona is kept in the `panel-data` branch (persona.json), encrypted with the
+// panel token like the tunnel URL. Without GH_TOKEN (local run) it falls back to ./persona.json.
+const LOCAL_PERSONA = path.join(__dirname, "persona.json");
+const seal = (text) => {
+  const salt = crypto.randomBytes(16), iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv("aes-256-gcm", crypto.pbkdf2Sync(TOKEN, salt, 100000, 32, "sha256"), iv);
+  const ct = Buffer.concat([c.update(text, "utf8"), c.final(), c.getAuthTag()]);
+  return { s: salt.toString("base64"), i: iv.toString("base64"), c: ct.toString("base64") };
+};
+const unseal = (f) => {
+  const ct = Buffer.from(f.c, "base64"), tag = ct.subarray(ct.length - 16), body = ct.subarray(0, ct.length - 16);
+  const d = crypto.createDecipheriv("aes-256-gcm", crypto.pbkdf2Sync(TOKEN, Buffer.from(f.s, "base64"), 100000, 32, "sha256"), Buffer.from(f.i, "base64"));
+  d.setAuthTag(tag);
+  return Buffer.concat([d.update(body), d.final()]).toString("utf8");
+};
+const ghApi = () => `https://api.github.com/repos/${REPO}/contents/persona.json`;
+const ghHeaders = () => ({ Authorization: "Bearer " + process.env.GH_TOKEN, Accept: "application/vnd.github+json", "User-Agent": "ceyobot" });
+
+async function savePersona(text) {
+  if (!process.env.GH_TOKEN || !REPO) { fs.writeFileSync(LOCAL_PERSONA, JSON.stringify(seal(text))); return true; }
+  const content = Buffer.from(JSON.stringify(seal(text))).toString("base64");
+  for (let n = 0; n < 4; n++) {
+    try {
+      const g = await fetch(ghApi() + "?ref=panel-data", { headers: ghHeaders() });
+      const sha = g.ok ? (await g.json()).sha : undefined;
+      const r = await fetch(ghApi(), { method: "PUT", headers: ghHeaders(), body: JSON.stringify({ message: "persona", content, branch: "panel-data", sha }) });
+      if (r.ok) return true;
+      ctx.log("Persona save failed:", r.status);
+    } catch (e) { ctx.log("Persona save error:", e.message); }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return false;
+}
+
+async function loadPersona() {
+  try {
+    let f;
+    if (!process.env.GH_TOKEN || !REPO) { if (!fs.existsSync(LOCAL_PERSONA)) return ""; f = JSON.parse(fs.readFileSync(LOCAL_PERSONA, "utf8")); }
+    else {
+      const r = await fetch(ghApi() + "?ref=panel-data", { headers: ghHeaders() });
+      if (!r.ok) return "";
+      f = JSON.parse(Buffer.from((await r.json()).content.replace(/\n/g, ""), "base64").toString("utf8"));
+    }
+    const text = ctx.setPersona(unseal(f));
+    if (text) ctx.log("Persona loaded:", text.slice(0, 60));
+    return text;
+  } catch (e) { ctx.log("Persona load failed:", e.message); return ""; }
 }
 
 function startTunnel(log) {
@@ -173,4 +225,4 @@ function start(c) {
   if (process.env.PANEL_TUNNEL === "1") { startTunnel(c.log); announce(); }
 }
 
-module.exports = { start, push };
+module.exports = { start, push, loadPersona };

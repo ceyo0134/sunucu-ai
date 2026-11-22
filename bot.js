@@ -5,7 +5,7 @@ const mineflayer = require("mineflayer");
 const { pathfinder, Movements, goals } = require("mineflayer-pathfinder");
 const { Vec3 } = require("vec3");
 const makeItem = require("prismarine-item");
-const { ask, warmup, getStats, SHAPES } = require("./ai");
+const { ask, warmup, getStats, SHAPES, setPersona, getPersona, MAX_PERSONA } = require("./ai");
 const { isOwner, sanitizeCommand, summarizeReply } = require("./cmd");
 const { planCraft, toolTierFor, tierRank, bestPickaxeRank, isLog, smeltOutputFor, SMELT } = require("./plan");
 const { trItem, missingFor, askText, classifyReply, gotSome } = require("./need");
@@ -1369,9 +1369,11 @@ if (require.main === module) (async () => {
     owner: () => require("./cmd").OWNERS[0],
     status: () => ({ task, guarding, queue: queue.slice(0, 8).map((q) => q.a.action + (q.a.item ? ":" + q.a.item : "") + (q.a.count > 1 ? " x" + q.a.count : "")) }),
     ask: (text) => incoming(require("./cmd").OWNERS[0], "ceyobot " + text),
+    setPersona, getPersona, maxPersona: MAX_PERSONA,
     stop: (b) => stopAll(b),
     cmd: (b, text) => commandAndTell(b, text, false, false, true),
   });
+  await Promise.race([panel.loadPersona(), sleep(8000)]); // before the warm-up, so the cached prompt already has the persona
   const w = Date.now();
   warmup().then(() => log("LLM warm-up done in", Math.round((Date.now() - w) / 1000), "s")).catch((e) => log("LLM warm-up failed:", e.message));
   do {

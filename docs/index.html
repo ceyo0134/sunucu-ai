@@ -10,11 +10,12 @@ nav{display:flex;overflow-x:auto;background:var(--card);border-bottom:1px solid 
 nav button{flex:1;background:none;border:0;color:var(--mu);padding:12px 10px;font-size:14px;white-space:nowrap}nav button.on{color:var(--ac);border-bottom:2px solid var(--ac)}
 main{padding:12px;max-width:760px;margin:auto}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
 button,input,select{font:inherit}.btn{background:#26303b;color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:10px 12px}.btn.p{background:var(--ac);color:#06210f;border:0;font-weight:600}.btn.d{color:var(--bad)}
-input[type=text],input[type=password],input[type=number]{width:100%;background:#0e1115;color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:11px}
+textarea,input[type=text],input[type=password],input[type=number]{width:100%;background:#0e1115;color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:11px}
 .row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.row>*{flex:1}.mu{color:var(--mu);font-size:13px}.bar{height:10px;background:#0e1115;border-radius:6px;overflow:hidden}.bar i{display:block;height:100%}
 .grid{display:grid;grid-template-columns:repeat(9,1fr);gap:4px}.slot{aspect-ratio:1;background:#0e1115;border:1px solid var(--line);border-radius:6px;font-size:9px;line-height:1.1;overflow:hidden;padding:2px;position:relative;word-break:break-all;color:var(--tx)}
 .slot.sel{border-color:var(--ac);box-shadow:0 0 0 1px var(--ac)}.slot b{position:absolute;right:2px;bottom:1px;font-size:11px;color:var(--ac)}.slot.q{border-color:#60a5fa}
 #log{height:52vh;overflow-y:auto;font:13px ui-monospace,monospace}.l{padding:2px 0;border-bottom:1px solid #20262e}.l.say{color:var(--ac)}.l.chat{color:#93c5fd}.l.log{color:var(--mu)}
+textarea{resize:vertical;min-height:130px;font:inherit}.chip{flex:0 0 auto}.on-p{border-color:var(--ac)}
 canvas{width:100%;image-rendering:pixelated;border-radius:10px;background:#000}.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:260px;margin:auto}.hide{display:none}
 #toast{position:fixed;bottom:calc(14px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#000c;padding:9px 14px;border-radius:20px;font-size:14px}
 </style></head><body>
@@ -25,7 +26,7 @@ canvas{width:100%;image-rendering:pixelated;border-radius:10px;background:#000}.
 </div>
 <div id="app" class="hide">
 <header><b id="title">ceyobot</b><span><span id="conn" class="mu">…</span> <button class="btn" id="out" style="padding:6px 10px">Çıkış</button></span></header>
-<nav id="tabs"><button data-t="st" class="on">Durum</button><button data-t="inv">Envanter</button><button data-t="map">Görüş</button><button data-t="chat">Sohbet/Günlük</button><button data-t="ctl">Kontrol</button></nav>
+<nav id="tabs"><button data-t="st" class="on">Durum</button><button data-t="inv">Envanter</button><button data-t="map">Görüş</button><button data-t="chat">Sohbet/Günlük</button><button data-t="ctl">Kontrol</button><button data-t="per">Kişilik</button></nav>
 <main>
 <section id="st"><div class="card"><div class="mu">Can</div><div class="bar"><i id="hp" style="background:#ef4444"></i></div><div class="mu" style="margin-top:8px">Açlık</div><div class="bar"><i id="fd" style="background:#f59e0b"></i></div></div>
 <div class="card" id="info"></div><div class="card"><b>Şu an ne yapıyor?</b><div id="task" style="margin-top:6px"></div><div class="mu" id="queue"></div><div class="row"><button class="btn d" data-a='{"type":"stop"}'>⏹ Hepsini durdur</button></div></div>
@@ -50,6 +51,13 @@ canvas{width:100%;image-rendering:pixelated;border-radius:10px;background:#000}.
 <div class="card"><b>Git</b><div class="row"><input type="number" id="gx" placeholder="X"><input type="number" id="gy" placeholder="Y"><input type="number" id="gz" placeholder="Z"></div>
 <div class="row"><button class="btn p" id="goto">Koordinata git</button><button class="btn" id="come">Bana gel</button></div></div>
 <div class="card"><b>Hızlı görevler</b><div class="row"><button class="btn" data-ask="bana gel">Bana gel</button><button class="btn" data-ask="beni koru">Koru</button><button class="btn" data-ask="odun topla 10">10 odun</button><button class="btn" data-ask="uyu">Uyu</button><button class="btn" data-ask="iyileş">İyileş</button></div></div></section>
+<section id="per" class="hide"><div class="card"><b>🎭 Bot kişiliği</b>
+<div class="mu" style="margin:6px 0 8px">Botun nasıl biri olacağını yaz, yazdığın gibi konuşur. Boş kaydedersen normal haline döner. Kayıt kalıcıdır (bot yeniden başlasa da kalır).</div>
+<textarea id="pt" maxlength="600" placeholder="Örn: Çok akıllı, kız gibi tatlı ve tipli konuş. Bana abi de, şakacı ol."></textarea>
+<div class="mu" id="pc" style="text-align:right">0/600</div>
+<div class="row"><button class="btn p" id="psave">💾 Kaydet</button><button class="btn d" id="preset">↺ Sıfırla</button></div>
+<div class="mu" id="pcur" style="margin-top:6px"></div></div>
+<div class="card"><b>Hazır kişilikler</b><div class="mu" style="margin:4px 0">Dokununca kutuya yazılır, sen düzenleyip Kaydet'e basarsın.</div><div class="row" id="pp"></div></div></section>
 </main></div><div id="toast" class="hide"></div>
 <script>
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
@@ -74,13 +82,26 @@ function login(){TK=$("#tk").value||TK;api("/api/state").then(()=>{localStorage.
 $("#go").onclick=login;$("#tk").onkeydown=e=>{if(e.key==="Enter")login()};
 $("#out").onclick=()=>{localStorage.removeItem("ctk");location.reload()};
 if(TK)login();
-$$("#tabs button").forEach(b=>b.onclick=()=>{$$("#tabs button").forEach(x=>x.classList.toggle("on",x===b));["st","inv","map","chat","ctl"].forEach(t=>$("#"+t).classList.toggle("hide",t!==b.dataset.t))});
+$$("#tabs button").forEach(b=>b.onclick=()=>{$$("#tabs button").forEach(x=>x.classList.toggle("on",x===b));["st","inv","map","chat","ctl","per"].forEach(t=>$("#"+t).classList.toggle("hide",t!==b.dataset.t));if(b.dataset.t==="per")loadP()});
 document.addEventListener("click",e=>{const t=e.target.closest("[data-a]");if(t)act(JSON.parse(t.dataset.a));const a=e.target.closest("[data-ask]");if(a)act({type:"ask",text:a.dataset.ask});const m=e.target.closest("[data-m]");if(m)act({type:"move",dir:m.dataset.m,ms:500});const l=e.target.closest("[data-look]");if(l){const[y,p]=l.dataset.look.split(",");act({type:"look",dyaw:+y,dpitch:+p})}});
 $("#sendchat").onclick=()=>{act({type:"chat",text:$("#msg").value});$("#msg").value=""};
 $("#sendask").onclick=()=>{act({type:"ask",text:$("#msg").value});$("#msg").value=""};
 $("#sendcmd").onclick=()=>{act({type:"cmd",text:$("#msg").value});$("#msg").value=""};
 $("#goto").onclick=()=>act({type:"goto",x:$("#gx").value,y:$("#gy").value,z:$("#gz").value});
 $("#come").onclick=()=>act({type:"come"});
+
+// persona
+const PRESETS=[["🧠 Akıllı kız","Çok akıllı, sevimli ve tipli bir kız gibi konuş. Tatlı, biraz şımarık, zeki espriler yap. Bana canım/tatlım de."],
+["😎 Cool abi","Sokak ağzıyla konuşan rahat, esprili bir abi ol. Kısa ve net konuş, bol \"kanka\" de."],
+["🎩 Efendi uşak","Çok kibar, resmi bir uşak gibi konuş. Bana efendim de, her isteği şevkle yerine getir."],
+["🤖 Soğuk robot","Duygusuz, mantıklı bir robot gibi konuş. Kısa, teknik cümleler kur, bazen \"hesaplanıyor\" de."],
+["🧙 Bilge büyücü","Eski ve bilge bir büyücü gibi konuş. Gizemli, şiirsel ve öğüt veren cümleler kur."],
+["😈 Şakacı troll","Sürekli şaka yapan, hafif dalga geçen ama sevimli bir troll ol. Görevleri yine de eksiksiz yap."]];
+const pp=$("#pp");PRESETS.forEach(([n,t])=>{const b=document.createElement("button");b.className="btn chip";b.textContent=n;b.onclick=()=>{$("#pt").value=t;cnt()};pp.append(b)});
+const cnt=()=>{$("#pc").textContent=$("#pt").value.length+"/600"};$("#pt").oninput=cnt;
+async function loadP(){try{const j=await api("/api/persona");$("#pt").value=j.text||"";cnt();$("#pcur").textContent=j.text?"✅ Şu an aktif kişilik var.":"Şu an normal (varsayılan) kişilik."}catch(e){toast("⚠ "+e.message)}}
+$("#psave").onclick=async()=>{await act({type:"persona",text:$("#pt").value});loadP()};
+$("#preset").onclick=async()=>{$("#pt").value="";cnt();await act({type:"persona",text:""});loadP()};
 // inventory
 const S_EQ={head:5,torso:6,legs:7,feet:8};
 function slotEl(i){const it=S&&S.inv.find(x=>x.slot===i),d=document.createElement("button");d.className="slot"+(sel===i?" sel":"")+(S&&i===36+S.quick?" q":"");d.innerHTML=it?`${it.name.replace(/_/g," ")}<b>${it.count>1?it.count:""}</b>`:"";d.onclick=()=>pick(i);return d}

@@ -92,3 +92,10 @@ The model is chosen with the repository variables `MODEL_REPO` and `MODEL_PATTER
 Set the secret `PANEL_TOKEN` (at least 12 characters, keep it private). When the **ai** workflow runs, the bot opens a Cloudflare quick tunnel and prints the panel link in the job summary and whispers it to the owner in-game. Open the link (stable GitHub Pages site: `https://<you>.github.io/sunucu-ai/`) and log in with the token. The bot publishes its current tunnel address AES-encrypted with the token to the `panel-data` branch, so the site finds it automatically and nobody without the token can read it: live status and behaviour log, chat, top-down view around the bot, full inventory management (equip, off-hand, armor, eat, drop, move), manual walking/looking, goto, and AI tasks. The site address never changes.
 
 **Commands, updated:** commands the owner types explicitly (`ceyobot /op Steve`, `ceyobot /gamemode creative`) and everything typed in the web panel run without the deny list (only `login/register/changepassword/unregister`, the bot's own account, stay blocked). Commands the AI picks by itself from plain words still use the deny list, so a model mistake can never `/stop` or `/ban`. The bot must be op for any of this to work (`/op ceyobot` in the server console).
+
+
+## Kişilik (panel → Kişilik sekmesi)
+
+Panelde **Kişilik** sekmesine botun nasıl biri olacağını yaz (örn. "çok akıllı, kız gibi tatlı ve tipli konuş"), **Kaydet**'e bas; bot yazdığın gibi konuşmaya başlar.
+Hazır kişilikler de var; boş kaydedersen normale döner. Kayıt `panel-data` branch'indeki `persona.json` dosyasına **panel tokeniyle şifreli** yazılır, bot yeniden başlasa da kalır.
+Kişilik sadece konuşma tarzını değiştirir; JSON formatı ve görev kararları aynı kalır. Maksimum 600 karakter.

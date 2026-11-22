@@ -112,6 +112,21 @@ Kurallar:
 - Sana seslenildiyse (adın: ${BOT}, ceyo, bot) mutlaka cevap ver, konuşulan şeye uygun ve eğlenceli ol.
 - Sana seslenilmediyse ve sohbet sana gerçekten uygun değilse sadece "-" yaz.`;
 
+// ---- persona (set from the web panel) ----
+// Appended to the END of both system prompts, so the long cached prefix in llama.cpp stays valid and only this small tail is recomputed.
+let persona = "";
+const MAX_PERSONA = 600;
+function cleanPersona(t) { return String(t || "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "").replace(/\r/g, "").trim().slice(0, MAX_PERSONA); }
+function setPersona(t) { persona = cleanPersona(t); return persona; }
+function getPersona() { return persona; }
+function personaBlock() {
+  return persona
+    ? `\n\nKİŞİLİĞİN (sahibin seçti): ${persona}\nBu kişiliğe tamamen bürün: konuşma tarzın, kelime seçimin ve \"say\" / sohbet cevapların hep bu karakterde olsun. Ama çıktı biçimi, kurallar ve görev kararların aynen kalır (JSON bozulmaz, işler doğru yapılır).`
+    : "";
+}
+const sysBig = () => SYSTEM + personaBlock();
+const sysChat = () => SYSTEM_CHAT + personaBlock();
+
 // words that mean "do something": such messages always go to the big prompt (a miss here only costs speed, never a missed job)
 const TASK_RE = new RegExp("(" + [
   "gel", "gid", "git", "topla", "kaz", "kır", "kes", "yap", "kur", "inşa", "insa", "koy", "ver", "\\bal\\b", "getir", "bul", "\\bara\\b", "savaş", "vur", "öldür", "avla", "koru",
@@ -275,8 +290,8 @@ async function ask(history, job, onSay, noThink) {
   try {
     // two llama.cpp slots: slot 0 keeps the big prompt cached, slot 1 the small chat prompt, so they never throw each other out
     const body = fast
-      ? { messages: [{ role: "system", content: SYSTEM_CHAT }, { role: "user", content: buildChatUser(history, job) }], temperature: 0.8, top_p: 0.95, top_k: 64, max_tokens: think ? 1500 : 70, stream: true, cache_prompt: true, id_slot: 1, chat_template_kwargs: { enable_thinking: think } }
-      : { messages: [{ role: "system", content: SYSTEM }, { role: "user", content: buildUser(history, job) }], temperature: 0.4, top_p: 0.95, top_k: 64, max_tokens: think ? 5000 : 1200, ...(think ? {} : { response_format: { type: "json_object" } }), stream: true, cache_prompt: true, id_slot: 0, chat_template_kwargs: { enable_thinking: think } };
+      ? { messages: [{ role: "system", content: sysChat() }, { role: "user", content: buildChatUser(history, job) }], temperature: 0.8, top_p: 0.95, top_k: 64, max_tokens: think ? 1500 : 70, stream: true, cache_prompt: true, id_slot: 1, chat_template_kwargs: { enable_thinking: think } }
+      : { messages: [{ role: "system", content: sysBig() }, { role: "user", content: buildUser(history, job) }], temperature: 0.4, top_p: 0.95, top_k: 64, max_tokens: think ? 5000 : 1200, ...(think ? {} : { response_format: { type: "json_object" } }), stream: true, cache_prompt: true, id_slot: 0, chat_template_kwargs: { enable_thinking: think } };
     const res = await fetch(BASE + "/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -321,8 +336,8 @@ async function warmup() {
     }
   };
   const job = { user: "ceyo0134", msg: "merhaba", addressed: false, owner: false, status: "başlıyor" };
-  await one(SYSTEM_CHAT, buildChatUser(["ceyo0134: merhaba"], job), 1, THINK_CHAT); // small: a few seconds, chat works right away
-  await one(SYSTEM, buildUser(["ceyo0134: merhaba"], job), 0, THINK); // big: about 2 minutes
+  await one(sysChat(), buildChatUser(["ceyo0134: merhaba"], job), 1, THINK_CHAT); // small: a few seconds, chat works right away
+  await one(sysBig(), buildUser(["ceyo0134: merhaba"], job), 0, THINK); // big: about 2 minutes
 }
 
-module.exports = { ask, warmup, getStats, isChatOnly, parseChat, parse, salvageActions, sayFromPartial, ACTIONS, SHAPES };
+module.exports = { setPersona, getPersona, MAX_PERSONA, ask, warmup, getStats, isChatOnly, parseChat, parse, salvageActions, sayFromPartial, ACTIONS, SHAPES };
