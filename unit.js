@@ -217,6 +217,14 @@ const cmdDone = (async () => {
   await new Promise((r) => setTimeout(r, 3200));
   ok("cmd: filler word dropped and command retried", chat[0] === "/skin set Yener yaz" && chat.includes("/skin set Yener"), chat.join(" | "));
 
+  // "Unknown or incomplete command" (OP bot, extra filler word) -> retry without the filler too, not only on "Invalid argument"
+  chat.length = 0;
+  T.incoming("ceyo0134", "ceyobot /skin set nude yaz");
+  await new Promise((r) => setTimeout(r, 900));
+  T.cmdReplies.push('Unknown or incomplete command, see below for error');
+  await new Promise((r) => setTimeout(r, 3200));
+  ok("cmd: unknown-or-incomplete also retried without filler", chat[0] === "/skin set nude yaz" && chat.includes("/skin set nude"), chat.join(" | "));
+
   // owner diagnostic
   chat.length = 0;
   T.incoming("ceyo0134", "ceyobot süre");

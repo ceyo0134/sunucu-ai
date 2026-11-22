@@ -93,7 +93,8 @@ async function commandAndTell(bot, raw, quiet, retried, full) {
   if (!res.ok) { say(bot, String(res.reason).startsWith("denied") ? "O komut güvenlik için yasak." : "Bu komutu çalıştıramam."); return res; }
   await sleep(1600); // the answer arrives as a chat line
   const sum = summarizeReply(cmdReplies.splice(0));
-  if (sum.failed && !sum.noOp && !retried && SYNTAX_FAIL_RE.test(sum.text || "")) {
+  // "Unknown or incomplete command" looks like "no permission" but is also what the server says to \"/skin set X yaz\": try once without the filler word before blaming op
+  if (sum.failed && !retried && (SYNTAX_FAIL_RE.test(sum.text || "") || /unknown or incomplete/i.test(sum.text || ""))) {
     const trimmed = String(raw).replace(FILLER_RE, "");
     if (trimmed && trimmed !== String(raw).trim() && trimmed.split(/\s+/).length >= 1) { // retry once without the trailing filler word(s)
       log("CMD retry without filler:", trimmed);
