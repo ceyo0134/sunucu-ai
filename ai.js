@@ -124,6 +124,7 @@ function personaBlock() {
     ? `\n\nKİŞİLİĞİN (sahibin seçti): ${persona}\nBu kişiliğe tamamen bürün: konuşma tarzın, kelime seçimin ve \"say\" / sohbet cevapların hep bu karakterde olsun. Ama çıktı biçimi, kurallar ve görev kararların aynen kalır (JSON bozulmaz, işler doğru yapılır).`
     : "";
 }
+const personaNudge = () => (persona ? `Kişiliğin: ${persona}. Cevabındaki konuşma tarzı (say) tamamen bu kişilikte olsun, önceki mesajlardaki tarza uyma.\n` : "");
 const sysBig = () => SYSTEM + personaBlock();
 const sysChat = () => SYSTEM_CHAT + personaBlock();
 
@@ -225,6 +226,7 @@ function buildUser(history, job) {
     `Sana mı seslendi: ${job.addressed ? "evet" : "hayır"}\n` +
     `Konuşan sahip mi: ${job.owner ? "evet" : "hayır"}\n` +
     (job.retried ? `DİKKAT: önceki cevabında iş yapacağını söyledin ama "actions" boştu. Şimdi "actions" listesini MUTLAKA doldur.\n` : "") +
+    personaNudge() +
     `Sadece JSON ile cevap ver.`
   );
 }
@@ -277,7 +279,8 @@ function buildChatUser(history, job) {
   return (
     `Son sohbet:\n${lines}\n\n` +
     `Son mesaj ${job.user} kişisinden: "${String(job.msg).slice(0, 200)}"\n` +
-    `Sana mı seslendi: ${job.addressed ? "evet" : "hayır"}`
+    `Sana mı seslendi: ${job.addressed ? "evet" : "hayır"}` +
+    (persona ? `\n${personaNudge()}`.trimEnd() : "")
   );
 }
 

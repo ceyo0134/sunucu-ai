@@ -1369,7 +1369,8 @@ if (require.main === module) (async () => {
     owner: () => require("./cmd").OWNERS[0],
     status: () => ({ task, guarding, queue: queue.slice(0, 8).map((q) => q.a.action + (q.a.item ? ":" + q.a.item : "") + (q.a.count > 1 ? " x" + q.a.count : "")) }),
     ask: (text) => incoming(require("./cmd").OWNERS[0], "ceyobot " + text),
-    setPersona, getPersona, maxPersona: MAX_PERSONA,
+    setPersona: (t) => { const before = getPersona(), now = setPersona(t); if (now !== before) history.length = 0; return now; }, // new persona: forget old-style replies so they do not anchor the tone
+    getPersona, maxPersona: MAX_PERSONA,
     stop: (b) => stopAll(b),
     cmd: (b, text) => commandAndTell(b, text, false, false, true),
   });
