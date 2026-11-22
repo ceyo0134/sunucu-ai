@@ -376,6 +376,16 @@ const mkX = (world, said) => makeExtra({
   bot.blockAt = (p) => mk("stone", true); // solid everywhere -> nowhere to build
   ok("portal: no site inside solid rock", B._test.findPortalSite(bot) === null);
 }
+  { // reflex: instant body commands
+    const { parseReflex } = require("./reflex");
+    const A = (m) => { const r = parseReflex(m, "ceyobot"); return r ? r.actions.map((a) => a.action + (a.item ? ":" + a.item : "")).join(",") : null; };
+    ok("reflex zıpla", A("ceyobot zıpla") === "jump");
+    ok("reflex etil/eğil", A("ceyobot etil") === "crouch" && A("ceyobot eğil") === "crouch");
+    ok("reflex arkanı dön", A("ceyobot arkanı dön") === "turnaround");
+    ok("reflex bana dön / dönme", A("bana dön") === "facelook" && A("ceyobot dönme") === "nolook");
+    ok("reflex two commands", A("ceyobot zıpla ve arkanı dön") === "jump,turnaround");
+    ok("reflex leaves real jobs to the AI", A("ceyobot zıpla sonra 10 odun topla") === null && A("ceyobot 10 odun topla") === null);
+  }
 console.log(fails ? `\n${fails} FAILED` : "\nall passed");
   process.exit(fails ? 1 : 0);
 })();

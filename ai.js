@@ -3,10 +3,11 @@ const BASE = process.env.LLM_URL || "http://127.0.0.1:8080";
 const BOT = process.env.MC_USERNAME || "ceyobot";
 
 const ACTIONS = ["none", "look", "jump", "wave", "come", "follow", "stop", "skip", "mine", "break", "place", "build", "give", "heal", "cmd", "goto", "guard", "fight", "craft", "sleep",
-  "smelt", "armor", "store", "take", "farm", "fish", "hunt", "tunnel", "digdown", "trade", "enchant", "ride", "dismount", "pickup", "retry", "selfgather", "portal"];
+  "smelt", "armor", "store", "take", "farm", "fish", "hunt", "tunnel", "digdown", "trade", "enchant", "ride", "dismount", "pickup", "retry", "selfgather", "portal",
+  "crouch", "uncrouch", "turnaround", "turn", "facelook", "nolook", "spin", "lookdir", "walk", "dance", "eat", "drop", "dropall", "report", "jumpkeep"];
 // words the model may use instead of the exact action name
 const ALIAS = { cook: "smelt", furnace: "smelt", equip: "armor", wear: "armor", chest: "store", put: "store", withdraw: "take", harvest: "farm", plant: "farm",
-  fishing: "fish", kill: "hunt", attack: "hunt", dig: "tunnel", tunnel_mine: "tunnel", descend: "digdown", barter: "trade", collect: "pickup", dismount_ride: "dismount", nether: "portal", enter_nether: "portal", nether_portal: "portal" };
+  fishing: "fish", kill: "hunt", attack: "hunt", dig: "tunnel", tunnel_mine: "tunnel", descend: "digdown", barter: "trade", collect: "pickup", dismount_ride: "dismount", nether: "portal", enter_nether: "portal", nether_portal: "portal", sneak: "crouch", unsneak: "uncrouch", stand: "uncrouch", turn_around: "turnaround", turnback: "turnaround", face: "facelook", face_me: "facelook", lookme: "facelook", rotate: "spin", sprint: "walk", run: "walk", move: "walk", forward: "walk", hop: "jump" };
 const SHAPES = ["tower", "wall", "platform", "house"];
 const BIG_COUNT = new Set(["mine", "break", "craft", "smelt", "hunt", "tunnel", "fish", "take"]); // these may ask for hundreds
 // Thinking: the model reasons before it answers a job request (better plans for long chains, but slower on a CPU).
@@ -41,6 +42,10 @@ Kurallar:
   enchant (yakındaki büyü masasında "item" eşyayı büyüle), ride (yakındaki tekne/at/domuz/vagona bin), dismount (in), pickup (yerdeki eşyaları topla),
   retry (bekleyen malzeme isteğinde sahip eşyayı verdiyse yerden toplayıp işe devam et), selfgather (sahip "kendin topla / bende yok" dediyse bekleyen işi malzemeleri kendin toplayarak yap),
   portal (Nether portalı: gerekirse obsidiyen toplar, çakmak yapar, 4x5 portalı kurar, yakar ve içine girer),
+  Vücut hareketleri (anında yapılır, kuyruğa girmez): crouch (eğil/çömel/sneak), uncrouch (kalk/ayağa kalk), jump (zıpla; "count" kere), jumpkeep ("item":"on" sürekli zıpla / "off" zıplamayı bırak),
+  turnaround (arkanı dön), turn ("item":"left"/"right"/"back" sola/sağa dön), facelook (bana dön/bana bak, "target" oyuncu), nolook (dönme/bakma: oyunculara dönüp bakmayı bırak), spin (etrafında dön),
+  lookdir ("item": up/down/forward/north/south/east/west yönüne bak), walk ("item": forward/back/left/right/sprint, "count" saniye), dance (dans et), wave (el salla), eat (yemek ye),
+  drop (elindekini at, sadece sahip), dropall (çantayı boşalt, sadece sahip), report ("item": pos/health/inv: konumunu/canını/çantanı söyle).
   stop (HER ŞEYİ bırak: o an yapılan işi de bekleyen tüm kuyruğu da iptal eder), skip (sadece o an yapılan işi bırak, kuyruğa devam et).
 - Yeni işler kuyruğun SONUNA eklenir. Oyuncu "hemen / şimdi / acil" derse ya da önceki işlerden vazgeçerse listenin başına {"action":"stop"} koy, sonra yeni işleri yaz.
 - "dur", "bırak", "iptal", "yeter", "vazgeç" gibi şeylerde sen karar ver: hepsini bırakacaksa stop, sadece şu anki işi bırakacaksa skip.

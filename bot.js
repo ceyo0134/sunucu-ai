@@ -11,6 +11,7 @@ const { planCraft, toolTierFor, tierRank, bestPickaxeRank, isLog, smeltOutputFor
 const { trItem, missingFor, askText, classifyReply, gotSome } = require("./need");
 const makeExtra = require("./extra");
 const panel = require("./panel");
+const { parseReflex } = require("./reflex");
 
 const HOST = process.env.MC_HOST || "Oynatrtr.aternos.me";
 const PORT = process.env.MC_PORT ? parseInt(process.env.MC_PORT, 10) : undefined;
@@ -879,6 +880,7 @@ function stopAll(bot) {
   queue.length = 0;
   cancelTask();
   guarding = null;
+  try { stopBody(bot); } catch (_) {}
   try { bot.pathfinder.setGoal(null); } catch (_) {}
 }
 
@@ -904,11 +906,121 @@ async function pump(bot) {
   }
 }
 
+// ---------- body commands (instant, never queued) ----------
+let lookMode = true; // idle: face nearby players. "arkanı dön" / "dönme" turn it off, "bana dön" turns it on again
+const bodyTimers = new Set();
+function loopFor(bot, ms, dur, fn) {
+  const end = Date.now() + dur;
+  const t = setInterval(() => {
+    if (current !== bot || Date.now() > end) { clearInterval(t); bodyTimers.delete(t); return; }
+    try { fn(); } catch (_) {}
+  }, ms);
+  bodyTimers.add(t);
+  return t;
+}
+function stopBody(bot) {
+  bodyTimers.forEach((t) => { clearInterval(t); clearTimeout(t); });
+  bodyTimers.clear();
+  for (const k of ["forward", "back", "left", "right", "jump", "sprint"]) { try { bot.setControlState(k, false); } catch (_) {} }
+}
+async function body(bot, a, job) {
+  const yaw = bot.entity.yaw, pitch = bot.entity.pitch;
+  const ownerOnly = () => { if (job.owner) return false; say(bot, "Bunu sadece sahibim isteyebilir."); return true; };
+  switch (a.action) {
+    case "crouch": bot.setControlState("sneak", true); return true;
+    case "uncrouch": bot.setControlState("sneak", false); return true;
+    case "jump":
+      (async () => { for (let i = 0; i < Math.min(a.count || 1, 20) && current === bot; i++) { bot.setControlState("jump", true); await sleep(250); bot.setControlState("jump", false); await sleep(350); } })().catch(() => {});
+      return true;
+    case "jumpkeep":
+      if (a.item === "off") bot.setControlState("jump", false);
+      else { bot.setControlState("jump", true); const t = setTimeout(() => { try { bot.setControlState("jump", false); } catch (_) {} }, 300000); bodyTimers.add(t); }
+      return true;
+    case "wave": bot.swingArm(); return true;
+    case "turnaround": lookMode = false; await bot.look(yaw + Math.PI, pitch, true); return true;
+    case "turn": lookMode = false; await bot.look(yaw + (a.item === "left" ? 1 : a.item === "back" ? 2 : -1) * Math.PI / 2, pitch, true); return true;
+    case "facelook": {
+      lookMode = true; stopBody(bot);
+      const pl = (bot.players[a.target || job.user] || {}).entity;
+      if (pl) await bot.lookAt(pl.position.offset(0, pl.height || 1.6, 0), true);
+      return true;
+    }
+    case "nolook": lookMode = false; stopBody(bot); return true;
+    case "spin": lookMode = false; loopFor(bot, 100, 60000, () => bot.look(bot.entity.yaw + 0.4, bot.entity.pitch, true)); return true;
+    case "lookdir": {
+      lookMode = false;
+      const Y = { north: 0, west: Math.PI / 2, south: Math.PI, east: -Math.PI / 2 };
+      if (a.item in Y) await bot.look(Y[a.item], 0, true);
+      else await bot.look(yaw, a.item === "up" ? 1.2 : a.item === "down" ? -1.2 : 0, true);
+      return true;
+    }
+    case "walk": {
+      if (bot.pathfinder && bot.pathfinder.goal) bot.pathfinder.setGoal(null);
+      const dir = { forward: "forward", back: "back", left: "left", right: "right", sprint: "forward" }[a.item || "forward"] || "forward";
+      bot.setControlState(dir, true);
+      if (a.item === "sprint") bot.setControlState("sprint", true);
+      const t = setTimeout(() => { for (const k of ["forward", "back", "left", "right", "sprint"]) { try { bot.setControlState(k, false); } catch (_) {} } }, Math.min(a.count || 2, 15) * 1000);
+      bodyTimers.add(t);
+      return true;
+    }
+    case "dance": {
+      lookMode = false; let i = 0;
+      loopFor(bot, 250, 6000, () => {
+        bot.setControlState("sneak", i % 2 === 0);
+        if (i % 4 === 0) { bot.setControlState("jump", true); setTimeout(() => { try { bot.setControlState("jump", false); } catch (_) {} }, 150); }
+        bot.look(bot.entity.yaw + 0.8, bot.entity.pitch, true);
+        i++;
+      });
+      setTimeout(() => { try { bot.setControlState("sneak", false); } catch (_) {} }, 6300);
+      return true;
+    }
+    case "eat": {
+      const foods = bot.registry.foodsByName || {};
+      const food = bot.inventory.items().find((i) => foods[i.name]);
+      if (!food) { say(bot, "Yiyecek bir şeyim yok."); return true; }
+      try { await bot.equip(food, "hand"); await bot.consume(); say(bot, "Yedim!"); } catch (e) { say(bot, "Yiyemedim: " + String(e.message).slice(0, 60)); }
+      return true;
+    }
+    case "drop": {
+      if (ownerOnly()) return true;
+      const it = bot.heldItem;
+      if (!it) { say(bot, "Elim boş."); return true; }
+      await bot.toss(it.type, it.metadata, it.count).catch(() => {});
+      return true;
+    }
+    case "dropall": {
+      if (ownerOnly()) return true;
+      for (const it of bot.inventory.items()) { await bot.toss(it.type, it.metadata, it.count).catch(() => {}); await sleep(150); }
+      return true;
+    }
+    case "report": {
+      if (a.item === "pos") { const p = bot.entity.position; say(bot, `Şuradayım: ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.z)}`); }
+      else if (a.item === "health") say(bot, `Canım ${Math.round(bot.health)}/20, açlık ${bot.food}/20.`);
+      else {
+        const inv = {};
+        bot.inventory.items().forEach((i) => { inv[i.name] = (inv[i.name] || 0) + i.count; });
+        const t = Object.entries(inv).slice(0, 10).map(([k, v]) => `${k} x${v}`).join(", ");
+        say(bot, t ? `Çantamda: ${t}` : "Çantam boş.");
+      }
+      return true;
+    }
+    default: return false;
+  }
+}
+
+async function runReflex(bot, user, rf) {
+  log("REFLEX:", JSON.stringify(rf.actions));
+  const job = { user, owner: isOwner(user) };
+  if (rf.say) say(bot, rf.say);
+  for (const a of rf.actions) { try { await body(bot, a, job); } catch (e) { log("reflex error:", e.message); } }
+}
+
 // Instant actions happen right away, everything else goes to the queue in the model's order.
 async function act(bot, r, job) {
   const e = (bot.players[r.target || job.user] || {}).entity;
   let added = 0;
   for (const a of r.actions) {
+    if (await body(bot, a, job)) continue;
     switch (a.action) {
       case "stop": stopAll(bot); break;
       case "skip": cancelTask(); break;
@@ -1015,6 +1127,10 @@ function incoming(user, msg) {
     return;
   }
   const addressed = ADDR_RE.test(msg) || (isOwner(user) && (now - lastSpoke < 60000 || queue.length > 0 || !!task) && !/^\W*(?:haha|ha ha|xd|lol|ok|tmm)\W*$/i.test(msg)); // the owner keeps talking to the bot without repeating its name
+  if ((addressed || isOwner(user)) && current && current.entity) { // "zıpla", "eğil", "arkanı dön", "bana dön", "dönme" ... run instantly
+    const rf = parseReflex(msg, USERNAME);
+    if (rf) { runReflex(current, user, rf).catch(() => {}); return; }
+  }
   if (!addressed && (!UNPROMPTED || now - lastThink < 20000)) return;
   if (pending && pending.user === user && now - pending.at < 20000) { // two messages in a row = one request (nothing gets lost)
     pending.msg = (pending.msg + ". " + msg).slice(0, 256);
@@ -1032,7 +1148,7 @@ function startIdle(bot, timers) {
   // look at nearby players
   timers.push(setInterval(() => {
     try {
-      if (task || (bot.pathfinder && bot.pathfinder.goal)) return;
+      if (!lookMode || task || (bot.pathfinder && bot.pathfinder.goal)) return;
       const me = bot.entity.position;
       const near = bot.nearestEntity((e) => e.type === "player" && e.username !== USERNAME && e.position.distanceTo(me) < 8);
       if (near) bot.lookAt(near.position.offset(0, near.height || 1.6, 0));
@@ -1209,6 +1325,7 @@ function connect(msLeft) {
     bot.once("spawn", () => {
       clearTimeout(joinTimer);
       current = bot;
+      lookMode = true;
       readyAt = Date.now() + 20000;
       log("Joined", HOST, "as", USERNAME, "version", bot.version);
       try {
@@ -1242,7 +1359,7 @@ async function runSession() {
   log("Session finished");
 }
 
-module.exports = { craftItem, mineTask, invCounts, _test: { findPortalSite, incoming, setCurrent: (b) => { current = b; }, cmdReplies, scanBlocks, wanderFor, findInvItem, blockMatcher, queue, setCur: (q) => { curJob = q; }, getNeed: () => need, clearNeed: () => { need = null; }, canAsk, resumeNeed, needLine } };
+module.exports = { craftItem, mineTask, invCounts, _test: { body, getLook: () => lookMode, findPortalSite, incoming, setCurrent: (b) => { current = b; }, cmdReplies, scanBlocks, wanderFor, findInvItem, blockMatcher, queue, setCur: (q) => { curJob = q; }, getNeed: () => need, clearNeed: () => { need = null; }, canAsk, resumeNeed, needLine } };
 
 if (require.main === module) (async () => {
   panel.start({
