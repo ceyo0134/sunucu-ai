@@ -207,7 +207,7 @@ function startTunnel(log) {
   process.on("exit", () => { try { p.kill(); } catch (_) {} });
 }
 
-// Whispers the panel link to the owner once per connection (the tunnel URL changes every run).
+// Whispers the panel link to the owner once per connection. Off by default, only with PANEL_ANNOUNCE=1.
 function announce() {
   let last = null;
   setInterval(() => {
@@ -222,7 +222,7 @@ function start(c) {
   if (!TOKEN || TOKEN.length < 12) { c.log("Panel off (set PANEL_TOKEN, at least 12 characters)"); return; }
   ctx = c;
   server().listen(PORT, "127.0.0.1", () => c.log("Panel listening on 127.0.0.1:" + PORT));
-  if (process.env.PANEL_TUNNEL === "1") { startTunnel(c.log); announce(); }
+  if (process.env.PANEL_TUNNEL === "1") { startTunnel(c.log); if (process.env.PANEL_ANNOUNCE === "1") announce(); }
 }
 
 module.exports = { start, push, loadPersona };
