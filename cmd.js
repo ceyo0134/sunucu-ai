@@ -19,24 +19,29 @@ function firstWord(cmd) {
   return w.toLowerCase().replace(/^[a-z0-9_.-]+:/, ""); // minecraft:op, bukkit:op ...
 }
 
-function denied(cmd, depth = 0) {
+// Always blocked, even for the owner: they would change or leak the bot's own login.
+const CRED = new Set(["login", "register", "l", "reg", "changepassword", "unregister"]);
+
+function denied(cmd, depth = 0, full = false) {
   const w = firstWord(cmd);
-  if (DENY.has(w)) return w;
+  if (full ? CRED.has(w) : DENY.has(w)) return w;
   if (w === "execute" && depth < 5) {
     const i = cmd.toLowerCase().lastIndexOf(" run ");
-    if (i >= 0) return denied(cmd.slice(i + 5), depth + 1);
+    if (i >= 0) return denied(cmd.slice(i + 5), depth + 1, full);
   }
   return null;
 }
 
 // returns { ok, cmd, reason }
-function sanitizeCommand(raw, secret) {
+// full=true: the owner typed it themselves (in-game "ceyobot /cmd" or the token-protected panel) -> every command works.
+// full=false: the AI picked it -> the DENY list also applies, so a model mistake can never op/ban/stop.
+function sanitizeCommand(raw, secret, full = false) {
   let s = String(raw || "").replace(/[\r\n\t]+/g, " ").replace(/\u00a7./g, "").trim();
   while (s.startsWith("/")) s = s.slice(1).trim();
   if (!s) return { ok: false, reason: "empty" };
-  if (s.length > 200) return { ok: false, reason: "too-long" };
+  if (s.length > (full ? 250 : 200)) return { ok: false, reason: "too-long" };
   if (secret && s.includes(secret)) return { ok: false, reason: "secret" };
-  const d = denied(s);
+  const d = denied(s, 0, full);
   if (d) return { ok: false, reason: "denied:" + d };
   return { ok: true, cmd: s };
 }

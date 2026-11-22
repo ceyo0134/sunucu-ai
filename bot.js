@@ -68,8 +68,8 @@ function say(bot, text) {
 }
 
 // Runs a "/" command. Only called for owners (or by the bot itself for owner requests); denylist always applies.
-async function runCommand(bot, raw) {
-  const r = sanitizeCommand(raw, PASSWORD);
+async function runCommand(bot, raw, full) {
+  const r = sanitizeCommand(raw, PASSWORD, !!full);
   if (!r.ok) { log("CMD refused:", r.reason); return r; }
   const wait = 700 - (Date.now() - lastCmdAt);
   if (wait > 0) await sleep(wait);
@@ -85,9 +85,9 @@ async function runCommand(bot, raw) {
 const FILLER_RE = /(?:\s+(?:yaz|yap|et|ver|koy|lütfen|lutfen|hadi|çalıştır|calistir|kullan|dene|len|ya|be|abi))+\s*$/i;
 const SYNTAX_FAIL_RE = /invalid|incorrect|syntax|usage|argument|too many|kullanım|geçersiz|gecersiz/i;
 
-async function commandAndTell(bot, raw, quiet, retried) {
+async function commandAndTell(bot, raw, quiet, retried, full) {
   cmdReplies.length = 0;
-  const res = await runCommand(bot, raw);
+  const res = await runCommand(bot, raw, full);
   if (!res.ok) { say(bot, String(res.reason).startsWith("denied") ? "O komut güvenlik için yasak." : "Bu komutu çalıştıramam."); return res; }
   await sleep(1600); // the answer arrives as a chat line
   const sum = summarizeReply(cmdReplies.splice(0));
@@ -95,7 +95,7 @@ async function commandAndTell(bot, raw, quiet, retried) {
     const trimmed = String(raw).replace(FILLER_RE, "");
     if (trimmed && trimmed !== String(raw).trim() && trimmed.split(/\s+/).length >= 1) { // retry once without the trailing filler word(s)
       log("CMD retry without filler:", trimmed);
-      return commandAndTell(bot, trimmed, quiet, true);
+      return commandAndTell(bot, trimmed, quiet, true, full);
     }
   }
   if (sum.failed) say(bot, sum.noOp ? `Komut çalışmadı, sunucu: "${sum.text}". Muhtemelen op değilim: /op ${USERNAME}` : `Komut çalışmadı, sunucu: "${sum.text}"`);
@@ -994,7 +994,7 @@ function incoming(user, msg) {
     const b = current;
     if (!b) return;
     if (!isOwner(user)) { say(b, "Komutları sadece sahibim verebilir."); return; }
-    commandAndTell(b, direct[1], false).catch(() => {});
+    commandAndTell(b, direct[1], false, false, true).catch(() => {});
     return;
   }
   if (need && user === need.user && current && (ADDR_RE.test(msg) || now - need.askedAt < 120000)) {
@@ -1253,7 +1253,7 @@ if (require.main === module) (async () => {
     status: () => ({ task, guarding, queue: queue.slice(0, 8).map((q) => q.a.action + (q.a.item ? ":" + q.a.item : "") + (q.a.count > 1 ? " x" + q.a.count : "")) }),
     ask: (text) => incoming(require("./cmd").OWNERS[0], "ceyobot " + text),
     stop: (b) => stopAll(b),
-    cmd: (b, text) => runCommand(b, text),
+    cmd: (b, text) => commandAndTell(b, text, false, false, true),
   });
   const w = Date.now();
   warmup().then(() => log("LLM warm-up done in", Math.round((Date.now() - w) / 1000), "s")).catch((e) => log("LLM warm-up failed:", e.message));
