@@ -1,0 +1,20 @@
+name: diag
+on:
+  workflow_dispatch:
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - name: Connection check
+        run: node diag.js 2>&1 | tee diag.log
+        env:
+          MC_HOST: ${{ vars.MC_HOST || 'ceyo0134.aternos.me' }}
+          MC_USERNAME: ${{ vars.MC_USERNAME || 'ceyobot' }}
+      - if: ${{ always() }}
+        run: python3 notice.py diag.log diag
