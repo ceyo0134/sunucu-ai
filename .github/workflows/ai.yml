@@ -55,7 +55,10 @@ jobs:
           curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           sudo install -m 755 cloudflared /usr/local/bin/cloudflared
       - name: Run bot
-        run: node bot.js
+        run: |
+          ( while true; do sleep 30; bash pushlog.sh; done ) &
+          node bot.js 2>&1 | tee /tmp/bot.log
+          bash pushlog.sh
         env:
           PANEL_TOKEN: ${{ secrets.PANEL_TOKEN }}
           GH_TOKEN: ${{ github.token }}
